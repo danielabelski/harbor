@@ -753,8 +753,8 @@
 - label: tei ships a screenshot of its Swagger UI at docs/harbor-tei.png embedded in its doc
   command: test -f docs/harbor-tei.png && grep -q 'harbor-tei.png' docs/2.2.26-Backend-Text-Embeddings-Inference.md
   tags: [tei, spec, implemented]
-- label: compose.x.webui.tei.yml points Open WebUI document RAG at TEI via RAG_EMBEDDING_ENGINE=openai and RAG_OPENAI_API_BASE_URL=http://tei:80/v1
-  command: grep -q 'RAG_EMBEDDING_ENGINE=openai' services/compose.x.webui.tei.yml && grep -q 'RAG_OPENAI_API_BASE_URL=http://tei:80/v1' services/compose.x.webui.tei.yml
+- label: compose.x.webui.tei.yml renders services/webui/configs/config.tei.json (rag.embedding_engine=openai, rag.openai.api_base_url=http://tei:80/v1, model HARBOR_TEI_MODEL) into Open WebUI's config on every start, so TEI becomes the embedder on existing installs, not only first boot
+  command: grep -q 'config.tei.json' services/compose.x.webui.tei.yml && grep -q '"embedding_engine": "openai"' services/webui/configs/config.tei.json && grep -q 'http://tei:80/v1' services/webui/configs/config.tei.json
   tags: [tei, spec, implemented]
 - label: compose.x.librechat.tei.yml switches librechat-rag to EMBEDDINGS_PROVIDER=huggingfacetei with EMBEDDINGS_MODEL=http://tei:80
   command: grep -q 'EMBEDDINGS_PROVIDER=huggingfacetei' services/compose.x.librechat.tei.yml && grep -q 'EMBEDDINGS_MODEL=http://tei:80' services/compose.x.librechat.tei.yml
@@ -767,6 +767,12 @@
   tags: [tei, spec, implemented]
 - label: tei /info reports the loaded model id matching HARBOR_TEI_MODEL
   command: curl -sf localhost:35030/info | grep -q "\"model_id\":\"$(./harbor.sh config get tei.model)\""
+  tags: [tei, spec, implemented]
+- label: [runtime: webui+tei up] with harbor up webui tei, GET /api/v1/retrieval/embedding reports engine openai at http://tei:80/v1 and uploading a file to /api/v1/files/ produces an openai_embed line in TEI's log (services/tei/check-webui-embed.sh)
+  command: ./services/tei/check-webui-embed.sh
+  tags: [tei, spec, implemented]
+- label: all four tei cross-files (webui, librechat, anythingllm, lightrag) depend on tei with condition: service_healthy so dependents start only after the model is loaded
+  command: for f in webui librechat anythingllm lightrag; do grep -q 'condition: service_healthy' services/compose.x.$f.tei.yml || exit 1; done
   tags: [tei, spec, implemented]
 
 ## lightrag
@@ -795,6 +801,18 @@
 - label: lightrag and paperless-gpt llamacpp cross-files ship a non-empty default model (HARBOR_LIGHTRAG_LLAMACPP_MODEL / HARBOR_PAPERLESS_GPT_LLAMACPP_MODEL) because empty model names 400 against the llama.cpp router
   command: grep -q 'HARBOR_LIGHTRAG_LLAMACPP_MODEL="LiquidAI' profiles/default.env && grep -q 'HARBOR_PAPERLESS_GPT_LLAMACPP_MODEL="LiquidAI' profiles/default.env
   tags: [lightrag, paperless, spec, implemented]
+- label: compose.x.lightrag.llamacpp.ollama.yml (3-dot, applied after the 2-dot cross-files) keeps the LLM on llamacpp (openai binding at http://llamacpp:8080/v1, HARBOR_LIGHTRAG_LLAMACPP_MODEL) while the ollama cross-file supplies embeddings, so 'harbor up lightrag llamacpp ollama' generates with llama.cpp and embeds with Ollama
+  command: ./harbor.sh eject --no-defaults lightrag llamacpp ollama | grep -q "LLM_BINDING_HOST: http://llamacpp:8080/v1" && ./harbor.sh eject --no-defaults lightrag llamacpp ollama | grep -q "EMBEDDING_BINDING: ollama"
+  tags: [lightrag, spec, implemented]
+- label: compose.x.webui.lightrag.yml registers http://lightrag:9621 as an Open WebUI Ollama connection (services/webui/configs/config.lightrag.json: per-URL api_config with an X-API-Key header and prefix_id lightrag) and whitelists only /api/tags, /api/version and /api/ps on lightrag, so lightrag:latest appears as a model in Open WebUI while /api/chat and /documents stay key-protected
+  command: grep -q "X-API-Key" services/webui/configs/config.lightrag.json && grep -q "WHITELIST_PATHS=/health,/api/tags,/api/version,/api/ps" services/compose.x.webui.lightrag.yml && ! grep -q "/api/chat" services/compose.x.webui.lightrag.yml
+  tags: [lightrag, spec, implemented]
+- label: lightrag healthcheck polls /health with a start_period and the container carries harbor.service/harbor.port labels; compose.x.traefik.lightrag.yml routes lightrag.HARBOR_TRAEFIK_DOMAIN to port 9621
+  command: grep -q "start_period" services/compose.lightrag.yml && grep -q "harbor.port=9621" services/compose.lightrag.yml && grep -q "loadbalancer.server.port=9621" services/compose.x.traefik.lightrag.yml
+  tags: [lightrag, spec, implemented]
+- label: lightrag metadata logo is the HKUDS GitHub avatar, and docs/2.3.93-Satellite-LightRAG.md follows the Windmill doc layout (#### Starting/Configuration/Integration with Harbor/Troubleshooting/Links) with a backend selection table and an Open WebUI section
+  command: grep -q "logo: .https://github.com/HKUDS.png" app/src/serviceMetadata.ts && grep -q "^#### Integration with Harbor" docs/2.3.93-Satellite-LightRAG.md && grep -q "harbor up lightrag ollama webui" docs/2.3.93-Satellite-LightRAG.md
+  tags: [lightrag, spec, implemented]
 
 ## linkwarden
 - label: compose.linkwarden.yml defines linkwarden (port 3000), linkwarden-db (postgres) and linkwarden-meili (meilisearch) with no restart policy

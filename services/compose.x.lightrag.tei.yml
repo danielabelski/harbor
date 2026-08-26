@@ -1,7 +1,8 @@
 services:
   lightrag:
     depends_on:
-      - tei
+      tei:
+        condition: service_healthy
     environment:
       - EMBEDDING_BINDING=openai
       - EMBEDDING_BINDING_HOST=http://tei:80/v1

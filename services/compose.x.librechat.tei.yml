@@ -1,7 +1,8 @@
 services:
   librechat-rag:
     depends_on:
-      - tei
+      tei:
+        condition: service_healthy
     environment:
       # rag_api has a native TEI provider; EMBEDDINGS_MODEL carries the server URL
       - EMBEDDINGS_PROVIDER=huggingfacetei

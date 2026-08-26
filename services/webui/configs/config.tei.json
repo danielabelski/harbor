@@ -1,0 +1,10 @@
+{
+  "rag": {
+    "embedding_engine": "openai",
+    "embedding_model": "${HARBOR_TEI_MODEL}",
+    "openai": {
+      "api_base_url": "http://tei:80/v1",
+      "api_key": "sk-tei"
+    }
+  }
+}

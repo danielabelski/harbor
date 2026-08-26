@@ -1,10 +1,15 @@
 services:
   webui:
     depends_on:
-      - tei
+      tei:
+        condition: service_healthy
+    volumes:
+      # Rendered into config.json at container start and upserted into
+      # Open WebUI's persisted config on every boot, so the integration
+      # takes effect on existing installs too (env vars alone would not:
+      # RAG_* are PersistentConfig and only seed a fresh database).
+      - ./services/webui/configs/config.tei.json:/app/configs/config.tei.json
     environment:
-      # RAG_* are PersistentConfig in Open WebUI: applied on first boot, later
-      # changes go through Admin > Settings > Documents
       - RAG_EMBEDDING_ENGINE=openai
       - RAG_OPENAI_API_BASE_URL=http://tei:80/v1
       - RAG_OPENAI_API_KEY=sk-tei

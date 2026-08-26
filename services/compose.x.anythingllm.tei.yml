@@ -1,7 +1,8 @@
 services:
   anythingllm:
     depends_on:
-      - tei
+      tei:
+        condition: service_healthy
     environment:
       - EMBEDDING_ENGINE=generic-openai
       - EMBEDDING_BASE_PATH=http://tei:80/v1
