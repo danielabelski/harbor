@@ -1,0 +1,16 @@
+# Exposes LightRAG's Ollama-compatible chat endpoint to Open WebUI as a
+# "lightrag:latest" model. Chat requests carry X-API-Key via per-connection
+# headers; the read-only listing routes (/api/tags, /api/version, /api/ps) are
+# whitelisted because Open WebUI only sends a Bearer token there, which
+# LightRAG does not accept.
+services:
+  webui:
+    depends_on:
+      lightrag:
+        condition: service_healthy
+    volumes:
+      - ./services/webui/configs/config.lightrag.json:/app/configs/config.lightrag.json
+
+  lightrag:
+    environment:
+      - WHITELIST_PATHS=/health,/api/tags,/api/version,/api/ps

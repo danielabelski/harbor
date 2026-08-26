@@ -1,0 +1,16 @@
+{
+  "ollama": {
+    "base_urls": [
+      "http://lightrag:9621"
+    ],
+    "api_configs": {
+      "http://lightrag:9621": {
+        "enable": true,
+        "prefix_id": "lightrag",
+        "headers": {
+          "X-API-Key": "${HARBOR_LIGHTRAG_API_KEY}"
+        }
+      }
+    }
+  }
+}

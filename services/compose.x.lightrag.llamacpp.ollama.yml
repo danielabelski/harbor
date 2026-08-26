@@ -1,0 +1,10 @@
+# llamacpp + ollama both running: llama.cpp serves the LLM, Ollama serves the
+# embeddings. Without this file the ollama cross-file (applied later) would take
+# the LLM back for itself.
+services:
+  lightrag:
+    environment:
+      - LLM_BINDING=openai
+      - LLM_BINDING_HOST=http://llamacpp:8080/v1
+      - LLM_BINDING_API_KEY=sk-llamacpp
+      - LLM_MODEL=${HARBOR_LIGHTRAG_LLAMACPP_MODEL}

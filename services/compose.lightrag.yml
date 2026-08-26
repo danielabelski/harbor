@@ -42,11 +42,17 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
+      start_period: 20s
     volumes:
       - ${HARBOR_LIGHTRAG_WORKSPACE}:/app/data
     networks:
       - harbor-network
+    labels:
+      - "harbor.service=lightrag"
+      - "harbor.port=9621"
 
+  # Init sidecar: chowns the workspace bind mount to HARBOR_USER_ID:HARBOR_GROUP_ID
+  # before lightrag starts. Mirrors the langflow/kotaemon pattern.
   lightrag-init:
     container_name: ${HARBOR_CONTAINER_PREFIX}.lightrag-init
     image: alpine:3.20

@@ -1156,7 +1156,7 @@ export const serviceMetadata: Record<string, Partial<HarborService>> = {
         name: 'LightRAG',
         tags: [HST.satellite, HST.rag, HST.api],
         projectUrl: 'https://github.com/HKUDS/LightRAG',
-        logo: 'https://www.google.com/s2/favicons?domain=arxiv.org&sz=128',
+        logo: 'https://github.com/HKUDS.png?size=200',
         wikiUrl: `${wikiUrl}/2.3.93-Satellite-LightRAG`,
         tooltip: 'Graph-based RAG server with a web UI, document ingestion and an Ollama-compatible query API.',
     },
