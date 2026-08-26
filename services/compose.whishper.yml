@@ -36,11 +36,14 @@ services:
       - ${HARBOR_WHISHPER_WORKSPACE}/logs:/var/log/whishper
     depends_on:
       whishper-mongo:
-        condition: service_started
+        condition: service_healthy
       whishper-init:
         condition: service_completed_successfully
     networks:
       - harbor-network
+    labels:
+      - "harbor.service=whishper"
+      - "harbor.port=80"
 
   whishper-mongo:
     container_name: ${HARBOR_CONTAINER_PREFIX}.whishper-mongo
@@ -53,6 +56,12 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=${HARBOR_WHISHPER_DB_PASSWORD}
     volumes:
       - ${HARBOR_WHISHPER_WORKSPACE}/db:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     networks:
       - harbor-network
 

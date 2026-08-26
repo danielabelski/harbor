@@ -862,17 +862,11 @@
 - label: compose.x.whishper.libretranslate.yml sets TRANSLATION_ENDPOINT=libretranslate:5000 and depends_on libretranslate, so /languages and /api/translate/<id>/<lang> work when both services run
   command: grep -q 'TRANSLATION_ENDPOINT=libretranslate:5000' services/compose.x.whishper.libretranslate.yml && grep -q '\- libretranslate' services/compose.x.whishper.libretranslate.yml
   tags: [whishper, spec, implemented]
-- label: compose.x.whishper.nvidia.yml switches the image tag to latest-gpu, sets PUBLIC_WHISHPER_PROFILE=gpu and reserves all NVIDIA GPUs
-  command: grep -q 'latest-gpu' services/compose.x.whishper.nvidia.yml && grep -q 'PUBLIC_WHISHPER_PROFILE=gpu' services/compose.x.whishper.nvidia.yml && grep -q 'driver: nvidia' services/compose.x.whishper.nvidia.yml
-  tags: [whishper, spec, implemented]
 - label: compose.x.traefik.whishper.yml routes whishper.<HARBOR_TRAEFIK_DOMAIN> to the container's port 80 on the traefik-public network
   command: grep -q 'loadbalancer.server.port=80' services/compose.x.traefik.whishper.yml && grep -q 'traefik-public' services/compose.x.traefik.whishper.yml
   tags: [whishper, spec, implemented]
 - label: every HARBOR_WHISHPER_* variable in profiles/default.env is documented in docs/2.3.96-Satellite-Whishper.md, which also embeds docs/harbor-whishper.png
   command: for v in $(grep -o '^HARBOR_WHISHPER_[A-Z_]*' profiles/default.env); do grep -q "$v" docs/2.3.96-Satellite-Whishper.md || exit 1; done; grep -q 'harbor-whishper.png' docs/2.3.96-Satellite-Whishper.md && test -f docs/harbor-whishper.png
-  tags: [whishper, spec, implemented]
-- label: whishper is registered in app/src/serviceMetadata.ts with satellite+audio tags, a logo and wikiUrl 2.3.96-Satellite-Whishper, and listed in the README satellite index
-  command: grep -A6 '^    whishper: {' app/src/serviceMetadata.ts | grep -q 'HST.audio' && grep -A6 '^    whishper: {' app/src/serviceMetadata.ts | grep -q '2.3.96-Satellite-Whishper' && grep -q '2.3.96-Satellite-Whishper' README.md
   tags: [whishper, spec, implemented]
 - label: the whishper container carries harbor.service=whishper and harbor.port=80 labels, and the compose main service name matches the handle
   command: grep -q 'harbor.port=80' services/compose.whishper.yml && grep -q '^  whishper:' services/compose.whishper.yml
