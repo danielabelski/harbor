@@ -1,0 +1,9 @@
+services:
+  linkwarden:
+    depends_on:
+      - vllm
+    environment:
+      - CUSTOM_OPENAI_BASE_URL=http://vllm:8000/v1
+      - CUSTOM_OPENAI_NAME=vllm
+      - OPENAI_API_KEY=sk-vllm
+      - OPENAI_MODEL=${HARBOR_VLLM_MODEL}

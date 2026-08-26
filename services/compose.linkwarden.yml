@@ -19,6 +19,12 @@ services:
       - ALLOW_PRIVATE_NETWORK_ACCESS=true
     volumes:
       - ${HARBOR_LINKWARDEN_WORKSPACE}/data:/data/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3000/api/v1/public/users/1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     depends_on:
       # Prisma migrations run at startup; wait for the DB and search index
       # to actually accept connections on cold start
@@ -53,10 +59,16 @@ services:
     env_file:
       - ./.env
     image: ${HARBOR_LINKWARDEN_MEILI_IMAGE}:${HARBOR_LINKWARDEN_MEILI_VERSION}
+    # Host user so the index directory stays manageable without sudo
+    user: ${HARBOR_USER_ID}:${HARBOR_GROUP_ID}
     environment:
       - MEILI_MASTER_KEY=${HARBOR_LINKWARDEN_MEILI_MASTER_KEY}
+      - MEILI_NO_ANALYTICS=true
     volumes:
       - ${HARBOR_LINKWARDEN_WORKSPACE}/meili:/meili_data
+    depends_on:
+      linkwarden-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:7700/health"]
       interval: 5s
@@ -77,6 +89,7 @@ services:
     entrypoint: ["/bin/sh", "/init.sh"]
     volumes:
       - ./services/linkwarden/workspace-init.sh:/init.sh:ro
-      - ${HARBOR_LINKWARDEN_WORKSPACE}/data:/workspace
+      - ${HARBOR_LINKWARDEN_WORKSPACE}/data:/workspace/data
+      - ${HARBOR_LINKWARDEN_WORKSPACE}/meili:/workspace/meili
     networks:
       - harbor-network

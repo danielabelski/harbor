@@ -816,6 +816,18 @@
 - label: linkwarden depends on linkwarden-db (pg_isready healthcheck) and linkwarden-meili (/health healthcheck) with condition service_healthy so Prisma migrations do not race the database on a cold start
   command: grep -q "pg_isready -U postgres" services/compose.linkwarden.yml && grep -q "7700/health" services/compose.linkwarden.yml && [ "$(grep -c "condition: service_healthy" services/compose.linkwarden.yml)" -ge 2 ]
   tags: [linkwarden, spec, implemented]
+- label: linkwarden compose defines a curl healthcheck against /api/v1/public/users/1 on port 3000 with a start_period so harbor up reports the container healthy only once the app answers
+  command: grep -q 'api/v1/public/users/1' services/compose.linkwarden.yml && grep -q start_period services/compose.linkwarden.yml
+  tags: [linkwarden, spec, implemented]
+- label: linkwarden-meili runs as the host user with MEILI_NO_ANALYTICS=true and its index dir is chowned by linkwarden-init, so services/linkwarden/meili stays host-owned
+  command: grep -A12 'linkwarden-meili:' services/compose.linkwarden.yml | grep -q 'user: ${HARBOR_USER_ID}' && grep -q MEILI_NO_ANALYTICS services/compose.linkwarden.yml && grep -q '/meili:/workspace/meili' services/compose.linkwarden.yml
+  tags: [linkwarden, spec, implemented]
+- label: linkwarden has vllm and mlx cross-files wiring CUSTOM_OPENAI_BASE_URL to the backend's /v1 endpoint with OPENAI_MODEL from HARBOR_VLLM_MODEL / HARBOR_MLX_MODEL
+  command: grep -q 'http://vllm:8000/v1' services/compose.x.linkwarden.vllm.yml && grep -q HARBOR_VLLM_MODEL services/compose.x.linkwarden.vllm.yml && grep -q 'http://mlx:8080/v1' services/compose.x.linkwarden.mlx.yml && grep -q HARBOR_MLX_MODEL services/compose.x.linkwarden.mlx.yml
+  tags: [linkwarden, spec, implemented]
+- label: the linkwarden doc follows the Windmill format: #### Starting/Configuration/Integration with Harbor/Troubleshooting/Links headings, Key Features list, Volumes and File ownership subsections
+  command: for h in '#### Starting' '#### Configuration' '#### Integration with Harbor' '#### Troubleshooting' '#### Links' 'Key Features' '##### Volumes' '##### File ownership'; do grep -q "$h" docs/2.3.97-Satellite-Linkwarden.md || exit 1; done
+  tags: [linkwarden, spec, implemented]
 
 ## paperless
 - label: paperless-gpt depends_on paperless (service_healthy) lives in compose.x.paperless-gpt.paperless.yml so compose.paperless-gpt.yml is valid standalone
