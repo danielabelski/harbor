@@ -1,0 +1,6 @@
+services:
+  whishper:
+    environment:
+      - TRANSLATION_ENDPOINT=libretranslate:5000
+    depends_on:
+      - libretranslate

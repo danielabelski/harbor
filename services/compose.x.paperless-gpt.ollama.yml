@@ -1,0 +1,10 @@
+services:
+  paperless-gpt:
+    depends_on:
+      - ollama
+    environment:
+      - LLM_PROVIDER=ollama
+      - OLLAMA_HOST=${HARBOR_OLLAMA_INTERNAL_URL}
+      - LLM_MODEL=${HARBOR_PAPERLESS_GPT_OLLAMA_MODEL}
+      # Thinking models otherwise burn the token budget before emitting the JSON suggestion
+      - OLLAMA_THINK=false

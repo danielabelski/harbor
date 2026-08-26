@@ -1,0 +1,12 @@
+services:
+  whishper:
+    image: ${HARBOR_WHISHPER_IMAGE}:latest-gpu
+    environment:
+      - PUBLIC_WHISHPER_PROFILE=gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              count: all
+              driver: nvidia

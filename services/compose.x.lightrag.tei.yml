@@ -1,0 +1,11 @@
+services:
+  lightrag:
+    depends_on:
+      - tei
+    environment:
+      - EMBEDDING_BINDING=openai
+      - EMBEDDING_BINDING_HOST=http://tei:80/v1
+      - EMBEDDING_BINDING_API_KEY=sk-tei
+      - EMBEDDING_MODEL=${HARBOR_TEI_MODEL}
+      - EMBEDDING_DIM=${HARBOR_LIGHTRAG_TEI_EMBEDDING_DIM}
+      - WORKING_DIR=/app/data/rag_storage/tei

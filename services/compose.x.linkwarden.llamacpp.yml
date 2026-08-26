@@ -1,0 +1,9 @@
+services:
+  linkwarden:
+    depends_on:
+      - llamacpp
+    environment:
+      - CUSTOM_OPENAI_BASE_URL=http://llamacpp:8080/v1
+      - CUSTOM_OPENAI_NAME=llamacpp
+      - OPENAI_API_KEY=sk-llamacpp
+      - OPENAI_MODEL=${HARBOR_LINKWARDEN_LLAMACPP_MODEL}

@@ -1,0 +1,10 @@
+services:
+  tei:
+    image: ${HARBOR_TEI_IMAGE}:${HARBOR_TEI_VERSION_CUDA}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -1,0 +1,73 @@
+services:
+  whishper:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.whishper
+    image: ${HARBOR_WHISHPER_IMAGE}:${HARBOR_WHISHPER_VERSION}
+    env_file:
+      - ./.env
+      - ./services/whishper/override.env
+    ports:
+      - ${HARBOR_WHISHPER_HOST_PORT}:80
+    entrypoint: ["/bin/sh", "/harbor/entrypoint.sh"]
+    healthcheck:
+      # The worker only answers once all WHISPER_MODELS are downloaded, so a
+      # healthy container means transcriptions will actually be processed
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:80/api/transcriptions >/dev/null && curl -sf http://127.0.0.1:8000/healthcheck/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30m
+    environment:
+      - PUBLIC_INTERNAL_API_HOST=http://127.0.0.1:80
+      - PUBLIC_TRANSLATION_API_HOST=
+      - PUBLIC_API_HOST=http://localhost:${HARBOR_WHISHPER_HOST_PORT}
+      - PUBLIC_WHISHPER_PROFILE=cpu
+      - WHISPER_MODELS_DIR=/app/models
+      - WHISPER_MODELS=${HARBOR_WHISHPER_MODELS}
+      - UPLOAD_DIR=/app/uploads
+      - CPU_THREADS=${HARBOR_WHISHPER_CPU_THREADS}
+      - DB_ENDPOINT=whishper-mongo:27017
+      - DB_USER=${HARBOR_WHISHPER_DB_USER}
+      - DB_PASS=${HARBOR_WHISHPER_DB_PASSWORD}
+    volumes:
+      - ./services/whishper/entrypoint.sh:/harbor/entrypoint.sh:ro
+      # Single mount so uploads/models stay host-owned (see whishper-init);
+      # the image hardcodes its log path, so logs are a separate root-owned mount
+      - ${HARBOR_WHISHPER_WORKSPACE}:/workspace
+      - ${HARBOR_WHISHPER_WORKSPACE}/logs:/var/log/whishper
+    depends_on:
+      whishper-mongo:
+        condition: service_started
+      whishper-init:
+        condition: service_completed_successfully
+    networks:
+      - harbor-network
+
+  whishper-mongo:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.whishper-mongo
+    image: ${HARBOR_WHISHPER_MONGO_IMAGE}:${HARBOR_WHISHPER_MONGO_VERSION}
+    env_file:
+      - ./.env
+      - ./services/whishper/override.env
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${HARBOR_WHISHPER_DB_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${HARBOR_WHISHPER_DB_PASSWORD}
+    volumes:
+      - ${HARBOR_WHISHPER_WORKSPACE}/db:/data/db
+    networks:
+      - harbor-network
+
+  whishper-init:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.whishper-init
+    image: alpine:3.20
+    env_file:
+      - ./.env
+      - ./services/whishper/override.env
+    environment:
+      TARGET_UID: ${HARBOR_USER_ID}
+      TARGET_GID: ${HARBOR_GROUP_ID}
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes:
+      - ./services/whishper/workspace-init.sh:/init.sh:ro
+      - ${HARBOR_WHISHPER_WORKSPACE}:/workspace
+    networks:
+      - harbor-network

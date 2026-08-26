@@ -1,0 +1,28 @@
+services:
+  tei:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.tei
+    image: ${HARBOR_TEI_IMAGE}:${HARBOR_TEI_VERSION}
+    env_file:
+      - ./.env
+      - ./services/tei/override.env
+    environment:
+      - HF_TOKEN=${HARBOR_HF_TOKEN}
+    command: >
+      --model-id ${HARBOR_TEI_MODEL}
+      --port 80
+      --hostname 0.0.0.0
+      ${HARBOR_TEI_EXTRA_ARGS}
+    volumes:
+      # TEI stores downloaded models under /data (HUGGINGFACE_HUB_CACHE); share the host HF cache
+      - ${HARBOR_HF_CACHE:-./services/tei/.hf-cache}/hub:/data
+    ports:
+      - ${HARBOR_TEI_HOST_PORT}:80
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/80 && printf \"GET /health HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      # First start downloads the model; allow a long grace period
+      start_period: 30m
+    networks:
+      - harbor-network

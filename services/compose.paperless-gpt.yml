@@ -1,0 +1,51 @@
+services:
+  paperless-gpt:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.paperless-gpt
+    image: ${HARBOR_PAPERLESS_GPT_IMAGE}:${HARBOR_PAPERLESS_GPT_VERSION}
+    env_file:
+      - ./.env
+      - ./services/paperless-gpt/override.env
+    depends_on:
+      paperless-gpt-init:
+        condition: service_completed_successfully
+    ports:
+      - ${HARBOR_PAPERLESS_GPT_HOST_PORT}:8080
+    entrypoint: ["/bin/sh", "/harbor/entrypoint.sh"]
+    environment:
+      - PAPERLESS_BASE_URL=http://paperless:8000
+      - PAPERLESS_PUBLIC_URL=${HARBOR_PAPERLESS_URL}
+      - PAPERLESS_API_TOKEN=${HARBOR_PAPERLESS_GPT_API_TOKEN}
+      - HARBOR_PAPERLESS_ADMIN_USER=${HARBOR_PAPERLESS_ADMIN_USER}
+      - HARBOR_PAPERLESS_ADMIN_PASSWORD=${HARBOR_PAPERLESS_ADMIN_PASSWORD}
+      - LLM_PROVIDER=${HARBOR_PAPERLESS_GPT_LLM_PROVIDER}
+      - LLM_MODEL=${HARBOR_PAPERLESS_GPT_LLM_MODEL}
+      - OPENAI_BASE_URL=${HARBOR_PAPERLESS_GPT_OPENAI_URL}
+      - OPENAI_API_KEY=${HARBOR_PAPERLESS_GPT_OPENAI_KEY}
+      - OLLAMA_HOST=${HARBOR_PAPERLESS_GPT_OLLAMA_URL}
+      - LLM_LANGUAGE=${HARBOR_PAPERLESS_GPT_LANGUAGE}
+      - SUGGESTION_WORKERS=1
+      - PUID=${HARBOR_USER_ID:-1000}
+      - PGID=${HARBOR_GROUP_ID:-1000}
+    volumes:
+      - ./services/paperless-gpt/entrypoint.sh:/harbor/entrypoint.sh:ro
+      - ${HARBOR_PAPERLESS_GPT_WORKSPACE}/prompts:/app/prompts
+      - ${HARBOR_PAPERLESS_GPT_WORKSPACE}/config:/app/config
+      - ${HARBOR_PAPERLESS_GPT_WORKSPACE}/db:/app/db
+    networks:
+      - harbor-network
+
+  paperless-gpt-init:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.paperless-gpt-init
+    image: alpine:3.20
+    env_file:
+      - ./.env
+      - ./services/paperless-gpt/override.env
+    environment:
+      TARGET_UID: ${HARBOR_USER_ID}
+      TARGET_GID: ${HARBOR_GROUP_ID}
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes:
+      - ./services/paperless-gpt/workspace-init.sh:/init.sh:ro
+      - ${HARBOR_PAPERLESS_GPT_WORKSPACE}:/workspace
+    networks:
+      - harbor-network

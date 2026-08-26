@@ -1,0 +1,64 @@
+services:
+  lightrag:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.lightrag
+    image: ${HARBOR_LIGHTRAG_IMAGE}:${HARBOR_LIGHTRAG_VERSION}
+    env_file:
+      - ./.env
+      - ./services/lightrag/override.env
+    # Run as the host user so files written into the workspace stay host-owned
+    user: ${HARBOR_USER_ID}:${HARBOR_GROUP_ID}
+    depends_on:
+      lightrag-init:
+        condition: service_completed_successfully
+    environment:
+      - HOST=0.0.0.0
+      - PORT=9621
+      # Storage is keyed by embedding source (cross-files override) so switching
+      # embedders never hits "Embedding dim mismatch" on existing data
+      - WORKING_DIR=/app/data/rag_storage/openai
+      - INPUT_DIR=/app/data/inputs
+      - PROMPT_DIR=/app/data/prompts
+      - TIKTOKEN_CACHE_DIR=/app/data/tiktoken
+      - LIGHTRAG_API_KEY=${HARBOR_LIGHTRAG_API_KEY}
+      - WHITELIST_PATHS=/health
+      # Standalone default: generic OpenAI-compatible endpoint; cross-files override
+      - LLM_BINDING=openai
+      - LLM_BINDING_HOST=${HARBOR_LIGHTRAG_OPENAI_URL}
+      - LLM_BINDING_API_KEY=${HARBOR_LIGHTRAG_OPENAI_KEY}
+      - LLM_MODEL=${HARBOR_LIGHTRAG_MODEL}
+      - EMBEDDING_BINDING=openai
+      - EMBEDDING_BINDING_HOST=${HARBOR_LIGHTRAG_OPENAI_URL}
+      - EMBEDDING_BINDING_API_KEY=${HARBOR_LIGHTRAG_OPENAI_KEY}
+      - EMBEDDING_MODEL=${HARBOR_LIGHTRAG_EMBEDDING_MODEL}
+      - EMBEDDING_DIM=${HARBOR_LIGHTRAG_EMBEDDING_DIM}
+      - EMBEDDING_SEND_DIM=false
+      - RERANK_BINDING=${HARBOR_LIGHTRAG_RERANK_BINDING}
+      - RERANK_BINDING_HOST=${HARBOR_LIGHTRAG_RERANK_URL}
+      - RERANK_MODEL=${HARBOR_LIGHTRAG_RERANK_MODEL}
+    ports:
+      - ${HARBOR_LIGHTRAG_HOST_PORT}:9621
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9621/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - ${HARBOR_LIGHTRAG_WORKSPACE}:/app/data
+    networks:
+      - harbor-network
+
+  lightrag-init:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.lightrag-init
+    image: alpine:3.20
+    env_file:
+      - ./.env
+      - ./services/lightrag/override.env
+    environment:
+      TARGET_UID: ${HARBOR_USER_ID}
+      TARGET_GID: ${HARBOR_GROUP_ID}
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes:
+      - ./services/lightrag/workspace-init.sh:/init.sh:ro
+      - ${HARBOR_LIGHTRAG_WORKSPACE}:/workspace
+    networks:
+      - harbor-network

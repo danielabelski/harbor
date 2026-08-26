@@ -1,0 +1,82 @@
+services:
+  linkwarden:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.linkwarden
+    image: ${HARBOR_LINKWARDEN_IMAGE}:${HARBOR_LINKWARDEN_VERSION}
+    env_file:
+      - ./.env
+      - ./services/linkwarden/override.env
+    # Run as the host user so files written into the workspace stay host-owned
+    user: ${HARBOR_USER_ID}:${HARBOR_GROUP_ID}
+    ports:
+      - ${HARBOR_LINKWARDEN_HOST_PORT}:3000
+    environment:
+      - NEXTAUTH_URL=http://localhost:${HARBOR_LINKWARDEN_HOST_PORT}/api/v1/auth
+      - NEXTAUTH_SECRET=${HARBOR_LINKWARDEN_NEXTAUTH_SECRET}
+      - DATABASE_URL=postgresql://postgres:${HARBOR_LINKWARDEN_DB_PASSWORD}@linkwarden-db:5432/postgres
+      - MEILI_HOST=http://linkwarden-meili:7700
+      - MEILI_MASTER_KEY=${HARBOR_LINKWARDEN_MEILI_MASTER_KEY}
+      # Harbor services live on a private docker network; allow archiving them
+      - ALLOW_PRIVATE_NETWORK_ACCESS=true
+    volumes:
+      - ${HARBOR_LINKWARDEN_WORKSPACE}/data:/data/data
+    depends_on:
+      # Prisma migrations run at startup; wait for the DB and search index
+      # to actually accept connections on cold start
+      linkwarden-db:
+        condition: service_healthy
+      linkwarden-meili:
+        condition: service_healthy
+      linkwarden-init:
+        condition: service_completed_successfully
+    networks:
+      - harbor-network
+
+  linkwarden-db:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.linkwarden-db
+    env_file:
+      - ./.env
+    image: ${HARBOR_LINKWARDEN_DB_IMAGE}:${HARBOR_LINKWARDEN_DB_VERSION}
+    environment:
+      - POSTGRES_PASSWORD=${HARBOR_LINKWARDEN_DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - ${HARBOR_LINKWARDEN_WORKSPACE}/pgdata:/var/lib/postgresql/data
+    networks:
+      - harbor-network
+
+  linkwarden-meili:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.linkwarden-meili
+    env_file:
+      - ./.env
+    image: ${HARBOR_LINKWARDEN_MEILI_IMAGE}:${HARBOR_LINKWARDEN_MEILI_VERSION}
+    environment:
+      - MEILI_MASTER_KEY=${HARBOR_LINKWARDEN_MEILI_MASTER_KEY}
+    volumes:
+      - ${HARBOR_LINKWARDEN_WORKSPACE}/meili:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - harbor-network
+
+  linkwarden-init:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.linkwarden-init
+    image: alpine:3.20
+    env_file:
+      - ./.env
+      - ./services/linkwarden/override.env
+    environment:
+      TARGET_UID: ${HARBOR_USER_ID}
+      TARGET_GID: ${HARBOR_GROUP_ID}
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes:
+      - ./services/linkwarden/workspace-init.sh:/init.sh:ro
+      - ${HARBOR_LINKWARDEN_WORKSPACE}/data:/workspace
+    networks:
+      - harbor-network

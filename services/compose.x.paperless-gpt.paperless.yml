@@ -1,0 +1,5 @@
+services:
+  paperless-gpt:
+    depends_on:
+      paperless:
+        condition: service_healthy

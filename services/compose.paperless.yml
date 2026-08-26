@@ -1,0 +1,67 @@
+services:
+  paperless:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.paperless
+    image: ${HARBOR_PAPERLESS_IMAGE}:${HARBOR_PAPERLESS_VERSION}
+    env_file:
+      - ./.env
+      - ./services/paperless/override.env
+    depends_on:
+      paperless-valkey:
+        condition: service_started
+      paperless-init:
+        condition: service_completed_successfully
+    ports:
+      - ${HARBOR_PAPERLESS_HOST_PORT}:8000
+    environment:
+      - PAPERLESS_REDIS=redis://paperless-valkey:6379
+      - PAPERLESS_DBENGINE=sqlite
+      - PAPERLESS_DATA_DIR=/workspace/data
+      - PAPERLESS_MEDIA_ROOT=/workspace/media
+      - PAPERLESS_CONSUMPTION_DIR=/workspace/consume
+      - PAPERLESS_EXPORT_DIR=/workspace/export
+      - PAPERLESS_URL=${HARBOR_PAPERLESS_URL}
+      - PAPERLESS_SECRET_KEY=${HARBOR_PAPERLESS_SECRET_KEY}
+      - PAPERLESS_ADMIN_USER=${HARBOR_PAPERLESS_ADMIN_USER}
+      - PAPERLESS_ADMIN_PASSWORD=${HARBOR_PAPERLESS_ADMIN_PASSWORD}
+      - PAPERLESS_OCR_LANGUAGE=${HARBOR_PAPERLESS_OCR_LANGUAGE}
+      - PAPERLESS_TIME_ZONE=${HARBOR_PAPERLESS_TIME_ZONE}
+      - USERMAP_UID=${HARBOR_USER_ID:-1000}
+      - USERMAP_GID=${HARBOR_GROUP_ID:-1000}
+    volumes:
+      # Single mount: sub-directory bind mounts are created root-owned by Docker
+      # after the init sidecar ran, so all paths are redirected under /workspace
+      - ${HARBOR_PAPERLESS_WORKSPACE}:/workspace
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api/ | grep -qE '^(200|302|401|403)$'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    networks:
+      - harbor-network
+
+  paperless-valkey:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.paperless-valkey
+    env_file:
+      - ./.env
+    image: ${HARBOR_PAPERLESS_VALKEY_IMAGE}:${HARBOR_PAPERLESS_VALKEY_VERSION}
+    volumes:
+      - ${HARBOR_PAPERLESS_WORKSPACE}/valkey:/data
+    networks:
+      - harbor-network
+
+  paperless-init:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.paperless-init
+    image: alpine:3.20
+    env_file:
+      - ./.env
+      - ./services/paperless/override.env
+    environment:
+      TARGET_UID: ${HARBOR_USER_ID}
+      TARGET_GID: ${HARBOR_GROUP_ID}
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes:
+      - ./services/paperless/workspace-init.sh:/init.sh:ro
+      - ${HARBOR_PAPERLESS_WORKSPACE}:/workspace
+    networks:
+      - harbor-network

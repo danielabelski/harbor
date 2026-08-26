@@ -1,0 +1,7 @@
+services:
+  linkwarden:
+    depends_on:
+      - ollama
+    environment:
+      - NEXT_PUBLIC_OLLAMA_ENDPOINT_URL=${HARBOR_OLLAMA_INTERNAL_URL}
+      - OLLAMA_MODEL=${HARBOR_LINKWARDEN_OLLAMA_MODEL}
