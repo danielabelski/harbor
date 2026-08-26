@@ -750,6 +750,24 @@
 - label: tei healthcheck start_period is 30m so a first-run model download does not flip the container to unhealthy
   command: grep -q "start_period: 30m" services/compose.tei.yml
   tags: [tei, spec, implemented]
+- label: tei ships a screenshot of its Swagger UI at docs/harbor-tei.png embedded in its doc
+  command: test -f docs/harbor-tei.png && grep -q 'harbor-tei.png' docs/2.2.26-Backend-Text-Embeddings-Inference.md
+  tags: [tei, spec, implemented]
+- label: compose.x.webui.tei.yml points Open WebUI document RAG at TEI via RAG_EMBEDDING_ENGINE=openai and RAG_OPENAI_API_BASE_URL=http://tei:80/v1
+  command: grep -q 'RAG_EMBEDDING_ENGINE=openai' services/compose.x.webui.tei.yml && grep -q 'RAG_OPENAI_API_BASE_URL=http://tei:80/v1' services/compose.x.webui.tei.yml
+  tags: [tei, spec, implemented]
+- label: compose.x.librechat.tei.yml switches librechat-rag to EMBEDDINGS_PROVIDER=huggingfacetei with EMBEDDINGS_MODEL=http://tei:80
+  command: grep -q 'EMBEDDINGS_PROVIDER=huggingfacetei' services/compose.x.librechat.tei.yml && grep -q 'EMBEDDINGS_MODEL=http://tei:80' services/compose.x.librechat.tei.yml
+  tags: [tei, spec, implemented]
+- label: compose.x.anythingllm.tei.yml sets AnythingLLM EMBEDDING_ENGINE=generic-openai against http://tei:80/v1 with HARBOR_TEI_MODEL as model
+  command: grep -q 'EMBEDDING_ENGINE=generic-openai' services/compose.x.anythingllm.tei.yml && grep -q 'EMBEDDING_MODEL_PREF=${HARBOR_TEI_MODEL}' services/compose.x.anythingllm.tei.yml
+  tags: [tei, spec, implemented]
+- label: tei doc follows the Windmill format: Key Features, #### Starting/Configuration/Integration with Harbor/Troubleshooting/Links
+  command: grep -q '^\*\*Key Features:\*\*' docs/2.2.26-Backend-Text-Embeddings-Inference.md && grep -q '^#### Integration with Harbor' docs/2.2.26-Backend-Text-Embeddings-Inference.md && grep -q '^#### Troubleshooting' docs/2.2.26-Backend-Text-Embeddings-Inference.md
+  tags: [tei, spec, implemented]
+- label: tei /info reports the loaded model id matching HARBOR_TEI_MODEL
+  command: curl -sf localhost:35030/info | grep -q "\"model_id\":\"$(./harbor.sh config get tei.model)\""
+  tags: [tei, spec, implemented]
 
 ## lightrag
 - label: lightrag service compose file at services/compose.lightrag.yml exposes port 9621 on HARBOR_LIGHTRAG_HOST_PORT and persists /app/data under HARBOR_LIGHTRAG_WORKSPACE
@@ -835,6 +853,31 @@
 - label: whishper entrypoint symlinks /app/uploads and /app/models into the single /workspace mount and the healthcheck also probes the transcription worker (127.0.0.1:8000/healthcheck/), so healthy means all WHISPER_MODELS are downloaded and jobs will not fail with status -1
   command: grep -q "ln -s \"/workspace/\$d\" \"/app/\$d\"" services/whishper/entrypoint.sh && grep -q "8000/healthcheck/" services/compose.whishper.yml && grep -q "start_period: 30m" services/compose.whishper.yml
   tags: [whishper, spec, implemented]
+- label: whishper-mongo has a mongosh ping healthcheck and whishper depends on it with condition service_healthy, so the Go backend never boots against an unready database
+  command: grep -q 'ping: 1' services/compose.whishper.yml && grep -A1 'whishper-mongo:' services/compose.whishper.yml | grep -q 'service_healthy'
+  tags: [whishper, spec, implemented]
+- label: whishper has a whishper-init alpine sidecar (services/whishper/workspace-init.sh) that chowns the workspace, uploads, models and logs to HARBOR_USER_ID:HARBOR_GROUP_ID before the main container starts, leaving db/ to the mongo user
+  command: grep -q 'for d in uploads models logs' services/whishper/workspace-init.sh && grep -A1 'whishper-init:' services/compose.whishper.yml | grep -q service_completed_successfully
+  tags: [whishper, spec, implemented]
+- label: compose.x.whishper.libretranslate.yml sets TRANSLATION_ENDPOINT=libretranslate:5000 and depends_on libretranslate, so /languages and /api/translate/<id>/<lang> work when both services run
+  command: grep -q 'TRANSLATION_ENDPOINT=libretranslate:5000' services/compose.x.whishper.libretranslate.yml && grep -q '\- libretranslate' services/compose.x.whishper.libretranslate.yml
+  tags: [whishper, spec, implemented]
+- label: compose.x.whishper.nvidia.yml switches the image tag to latest-gpu, sets PUBLIC_WHISHPER_PROFILE=gpu and reserves all NVIDIA GPUs
+  command: grep -q 'latest-gpu' services/compose.x.whishper.nvidia.yml && grep -q 'PUBLIC_WHISHPER_PROFILE=gpu' services/compose.x.whishper.nvidia.yml && grep -q 'driver: nvidia' services/compose.x.whishper.nvidia.yml
+  tags: [whishper, spec, implemented]
+- label: compose.x.traefik.whishper.yml routes whishper.<HARBOR_TRAEFIK_DOMAIN> to the container's port 80 on the traefik-public network
+  command: grep -q 'loadbalancer.server.port=80' services/compose.x.traefik.whishper.yml && grep -q 'traefik-public' services/compose.x.traefik.whishper.yml
+  tags: [whishper, spec, implemented]
+- label: every HARBOR_WHISHPER_* variable in profiles/default.env is documented in docs/2.3.96-Satellite-Whishper.md, which also embeds docs/harbor-whishper.png
+  command: for v in $(grep -o '^HARBOR_WHISHPER_[A-Z_]*' profiles/default.env); do grep -q "$v" docs/2.3.96-Satellite-Whishper.md || exit 1; done; grep -q 'harbor-whishper.png' docs/2.3.96-Satellite-Whishper.md && test -f docs/harbor-whishper.png
+  tags: [whishper, spec, implemented]
+- label: whishper is registered in app/src/serviceMetadata.ts with satellite+audio tags, a logo and wikiUrl 2.3.96-Satellite-Whishper, and listed in the README satellite index
+  command: grep -A6 '^    whishper: {' app/src/serviceMetadata.ts | grep -q 'HST.audio' && grep -A6 '^    whishper: {' app/src/serviceMetadata.ts | grep -q '2.3.96-Satellite-Whishper' && grep -q '2.3.96-Satellite-Whishper' README.md
+  tags: [whishper, spec, implemented]
+- label: the whishper container carries harbor.service=whishper and harbor.port=80 labels, and the compose main service name matches the handle
+  command: grep -q 'harbor.port=80' services/compose.whishper.yml && grep -q '^  whishper:' services/compose.whishper.yml
+  tags: [whishper, spec, implemented]
+- end-user workflow: with whishper healthy, an espeak-ng wav POSTed to /api/transcriptions (file, language, modelSize, device) reaches status 2 with the spoken text, and with libretranslate up GET /api/translate/<id>/es stores a Spanish translation @whishper @spec @implemented @manual
 
 # app
 - label: Harbor App blocks main UI behind a setup gate until setup detail status is ready

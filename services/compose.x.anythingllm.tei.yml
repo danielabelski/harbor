@@ -1,0 +1,10 @@
+services:
+  anythingllm:
+    depends_on:
+      - tei
+    environment:
+      - EMBEDDING_ENGINE=generic-openai
+      - EMBEDDING_BASE_PATH=http://tei:80/v1
+      - EMBEDDING_MODEL_PREF=${HARBOR_TEI_MODEL}
+      - EMBEDDING_MODEL_MAX_CHUNK_LENGTH=512
+      - GENERIC_OPEN_AI_EMBEDDING_API_KEY=sk-tei

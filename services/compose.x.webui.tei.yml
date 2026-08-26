@@ -1,0 +1,11 @@
+services:
+  webui:
+    depends_on:
+      - tei
+    environment:
+      # RAG_* are PersistentConfig in Open WebUI: applied on first boot, later
+      # changes go through Admin > Settings > Documents
+      - RAG_EMBEDDING_ENGINE=openai
+      - RAG_OPENAI_API_BASE_URL=http://tei:80/v1
+      - RAG_OPENAI_API_KEY=sk-tei
+      - RAG_EMBEDDING_MODEL=${HARBOR_TEI_MODEL}
