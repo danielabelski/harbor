@@ -857,6 +857,15 @@
 - label: paperless mounts its workspace once at /workspace and redirects PAPERLESS_DATA_DIR, PAPERLESS_MEDIA_ROOT, PAPERLESS_CONSUMPTION_DIR and PAPERLESS_EXPORT_DIR into it; paperless-init only chowns those app dirs and leaves valkey/ to the valkey user
   command: grep -q "PAPERLESS_DATA_DIR=/workspace/data" services/compose.paperless.yml && grep -q "HARBOR_PAPERLESS_WORKSPACE}:/workspace" services/compose.paperless.yml && grep -q "for d in data media consume export" services/paperless/workspace-init.sh
   tags: [paperless, ownership4, spec, implemented]
+- label: paperless-gpt entrypoint creates the trigger tags listed in HARBOR_PAPERLESS_GPT_BOOTSTRAP_TAGS (default 'paperless-gpt paperless-gpt-auto') in paperless-ngx via POST /api/tags/ when missing, so a fresh stack needs no manual tag setup
+  command: grep -q "HARBOR_PAPERLESS_GPT_BOOTSTRAP_TAGS" services/paperless-gpt/entrypoint.sh && grep -q "/api/tags/" services/paperless-gpt/entrypoint.sh && grep -q "^HARBOR_PAPERLESS_GPT_BOOTSTRAP_TAGS=" profiles/default.env
+  tags: [paperless, spec, implemented]
+- label: paperless-valkey has a valkey-cli ping healthcheck and paperless waits for it with service_healthy; paperless-gpt has a wget healthcheck on :8080 so dependents can use service_healthy
+  command: grep -q "valkey-cli ping" services/compose.paperless.yml && grep -A1 "paperless-valkey:" services/compose.paperless.yml | grep -q service_healthy && grep -q "wget -q -O /dev/null http://localhost:8080/" services/compose.paperless-gpt.yml
+  tags: [paperless, spec, implemented]
+- label: paperless docs follow the Windmill doc format (#### Starting/Configuration/Integration with Harbor/Troubleshooting/Links plus a Key Features list); paperless-gpt metadata carries a logo and both entries are tagged satellite+tools
+  command: grep -q '^#### Integration with Harbor' docs/2.3.94-Satellite-Paperless.md && grep -q 'Key Features' docs/2.3.95-Satellite-Paperless-GPT.md && grep -A4 "'paperless-gpt': {" app/src/serviceMetadata.ts | grep -q 'logo:'
+  tags: [paperless, spec, implemented]
 
 ## whishper
 - label: whishper starts via services/whishper/entrypoint.sh which rewrites nginx's hardcoded translate:5000 upstream to TRANSLATION_ENDPOINT (default 127.0.0.1:5000) so the container serves the UI without libretranslate

@@ -25,5 +25,20 @@ if [ -z "$PAPERLESS_API_TOKEN" ]; then
   fi
 fi
 
+# paperless-gpt only sees documents carrying its trigger tags, and paperless-ngx
+# does not create them. Bootstrap them so a fresh stack works without UI setup.
+for tag in ${HARBOR_PAPERLESS_GPT_BOOTSTRAP_TAGS-paperless-gpt paperless-gpt-auto}; do
+  existing=$(wget -q -O - --header "Authorization: Token $PAPERLESS_API_TOKEN" \
+    "$PAPERLESS_BASE_URL/api/tags/?name__iexact=$tag" 2>/dev/null || true)
+  if printf '%s' "$existing" | grep -q '"count"[[:space:]]*:[[:space:]]*0'; then
+    wget -q -O /dev/null --header "Authorization: Token $PAPERLESS_API_TOKEN" \
+      --header "Content-Type: application/json" \
+      --post-data "{\"name\":\"$tag\",\"matching_algorithm\":0}" \
+      "$PAPERLESS_BASE_URL/api/tags/" 2>/dev/null \
+      && echo "[harbor] created paperless tag '$tag'" \
+      || echo "[harbor] could not create paperless tag '$tag'" >&2
+  fi
+done
+
 unset HARBOR_PAPERLESS_ADMIN_PASSWORD
 exec /app/entrypoint.sh "$@"

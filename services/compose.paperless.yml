@@ -7,7 +7,7 @@ services:
       - ./services/paperless/override.env
     depends_on:
       paperless-valkey:
-        condition: service_started
+        condition: service_healthy
       paperless-init:
         condition: service_completed_successfully
     ports:
@@ -47,6 +47,12 @@ services:
     image: ${HARBOR_PAPERLESS_VALKEY_IMAGE}:${HARBOR_PAPERLESS_VALKEY_VERSION}
     volumes:
       - ${HARBOR_PAPERLESS_WORKSPACE}/valkey:/data
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
     networks:
       - harbor-network
 

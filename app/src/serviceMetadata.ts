@@ -1178,7 +1178,7 @@ export const serviceMetadata: Record<string, Partial<HarborService>> = {
     },
     paperless: {
         name: 'Paperless-ngx',
-        tags: [HST.satellite],
+        tags: [HST.satellite, HST.tools],
         projectUrl: 'https://github.com/paperless-ngx/paperless-ngx',
         logo: 'https://www.google.com/s2/favicons?domain=docs.paperless-ngx.com&sz=128',
         wikiUrl: `${wikiUrl}/2.3.94-Satellite-Paperless`,
@@ -1186,8 +1186,9 @@ export const serviceMetadata: Record<string, Partial<HarborService>> = {
     },
     'paperless-gpt': {
         name: 'Paperless-GPT',
-        tags: [HST.satellite],
+        tags: [HST.satellite, HST.tools],
         projectUrl: 'https://github.com/icereed/paperless-gpt',
+        logo: 'https://github.com/icereed.png?size=200',
         wikiUrl: `${wikiUrl}/2.3.95-Satellite-Paperless-GPT`,
         tooltip: 'LLM companion for Paperless-ngx: suggests titles, tags and correspondents, and does LLM-based OCR.',
     },

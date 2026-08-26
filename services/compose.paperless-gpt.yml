@@ -17,6 +17,7 @@ services:
       - PAPERLESS_API_TOKEN=${HARBOR_PAPERLESS_GPT_API_TOKEN}
       - HARBOR_PAPERLESS_ADMIN_USER=${HARBOR_PAPERLESS_ADMIN_USER}
       - HARBOR_PAPERLESS_ADMIN_PASSWORD=${HARBOR_PAPERLESS_ADMIN_PASSWORD}
+      - HARBOR_PAPERLESS_GPT_BOOTSTRAP_TAGS=${HARBOR_PAPERLESS_GPT_BOOTSTRAP_TAGS}
       - LLM_PROVIDER=${HARBOR_PAPERLESS_GPT_LLM_PROVIDER}
       - LLM_MODEL=${HARBOR_PAPERLESS_GPT_LLM_MODEL}
       - OPENAI_BASE_URL=${HARBOR_PAPERLESS_GPT_OPENAI_URL}
@@ -31,6 +32,12 @@ services:
       - ${HARBOR_PAPERLESS_GPT_WORKSPACE}/prompts:/app/prompts
       - ${HARBOR_PAPERLESS_GPT_WORKSPACE}/config:/app/config
       - ${HARBOR_PAPERLESS_GPT_WORKSPACE}/db:/app/db
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
     networks:
       - harbor-network
 
