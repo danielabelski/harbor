@@ -3,8 +3,16 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
-      lightrag-ollama-init:
-        condition: service_completed_successfully
+    # Model prep runs inside this container (services/lightrag/ollama-init.sh
+    # wraps the image entrypoint) rather than in a cross-file-only sidecar, so
+    # `harbor down lightrag` works without naming ollama
+    entrypoint: ["/bin/sh", "/harbor/ollama-init.sh"]
+    volumes:
+      - ./services/lightrag/ollama-init.sh:/harbor/ollama-init.sh:ro
+    healthcheck:
+      # Pulling HARBOR_LIGHTRAG_OLLAMA_MODEL on first start can take a while;
+      # probe failures during start_period do not count against retries
+      start_period: 30m
     environment:
       # LLM goes through Ollama's OpenAI-compatible endpoint rather than the
       # native binding: it is the only route that accepts reasoning_effort,
@@ -14,7 +22,14 @@ services:
       - LLM_BINDING=openai
       - LLM_BINDING_HOST=${HARBOR_OLLAMA_INTERNAL_URL}/v1
       - LLM_BINDING_API_KEY=sk-ollama
-      # Derived models created by lightrag-ollama-init from
+      # Inputs for the model prep in ollama-init.sh
+      - OLLAMA_HOST=${HARBOR_OLLAMA_INTERNAL_URL}
+      - LIGHTRAG_OLLAMA_BASE_MODEL=${HARBOR_LIGHTRAG_OLLAMA_MODEL}
+      - LIGHTRAG_OLLAMA_EXTRACT_MODEL=lightrag/${HARBOR_LIGHTRAG_OLLAMA_MODEL}
+      - LIGHTRAG_OLLAMA_QUERY_MODEL=lightrag/${HARBOR_LIGHTRAG_OLLAMA_MODEL}-query
+      - LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX=${HARBOR_LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX}
+      - LIGHTRAG_OLLAMA_NUM_CTX=${HARBOR_LIGHTRAG_OLLAMA_NUM_CTX}
+      # Derived models created at container start from
       # HARBOR_LIGHTRAG_OLLAMA_MODEL, with num_ctx baked in because /v1 ignores
       # per-request context options. Extraction/keyword calls and query answers
       # use separate copies so they never share an Ollama runner (see
@@ -29,28 +44,3 @@ services:
       - EMBEDDING_MODEL=${HARBOR_LIGHTRAG_OLLAMA_EMBEDDING_MODEL}
       - EMBEDDING_DIM=${HARBOR_LIGHTRAG_OLLAMA_EMBEDDING_DIM}
       - WORKING_DIR=/app/data/rag_storage/ollama
-
-  # Pulls HARBOR_LIGHTRAG_OLLAMA_MODEL and derives lightrag/<model> (extraction,
-  # HARBOR_LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX) and lightrag/<model>-query
-  # (answers, HARBOR_LIGHTRAG_OLLAMA_NUM_CTX); both share the base model's blobs
-  lightrag-ollama-init:
-    container_name: ${HARBOR_CONTAINER_PREFIX}.lightrag-ollama-init
-    image: alpine:3.20
-    env_file:
-      - ./.env
-      - ./services/lightrag/override.env
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: ${HARBOR_OLLAMA_INTERNAL_URL}
-      LIGHTRAG_OLLAMA_BASE_MODEL: ${HARBOR_LIGHTRAG_OLLAMA_MODEL}
-      LIGHTRAG_OLLAMA_EXTRACT_MODEL: lightrag/${HARBOR_LIGHTRAG_OLLAMA_MODEL}
-      LIGHTRAG_OLLAMA_QUERY_MODEL: lightrag/${HARBOR_LIGHTRAG_OLLAMA_MODEL}-query
-      LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX: ${HARBOR_LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX}
-      LIGHTRAG_OLLAMA_NUM_CTX: ${HARBOR_LIGHTRAG_OLLAMA_NUM_CTX}
-    entrypoint: ["/bin/sh", "/init.sh"]
-    volumes:
-      - ./services/lightrag/ollama-init.sh:/init.sh:ro
-    networks:
-      - harbor-network
