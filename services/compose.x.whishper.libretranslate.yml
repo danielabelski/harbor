@@ -2,5 +2,18 @@ services:
   whishper:
     environment:
       - TRANSLATION_ENDPOINT=libretranslate:5000
+    # Gate on LibreTranslate actually serving /languages: on a cold cache it
+    # spends minutes downloading argos models while whishper's own health
+    # would otherwise flip green with an empty TRANSLATE modal (502)
     depends_on:
-      - libretranslate
+      libretranslate:
+        condition: service_healthy
+
+  libretranslate:
+    # The image ships neither curl nor wget, hence python
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/languages', timeout=5)\""]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30m

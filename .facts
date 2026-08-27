@@ -919,9 +919,14 @@
 - label: whishper has a whishper-init alpine sidecar (services/whishper/workspace-init.sh) that chowns the workspace, uploads, models and logs to HARBOR_USER_ID:HARBOR_GROUP_ID before the main container starts, leaving db/ to the mongo user
   command: grep -q 'for d in uploads models logs' services/whishper/workspace-init.sh && grep -A1 'whishper-init:' services/compose.whishper.yml | grep -q service_completed_successfully
   tags: [whishper, spec, implemented]
-- label: compose.x.whishper.libretranslate.yml sets TRANSLATION_ENDPOINT=libretranslate:5000 and depends_on libretranslate, so /languages and /api/translate/<id>/<lang> work when both services run
-  command: grep -q 'TRANSLATION_ENDPOINT=libretranslate:5000' services/compose.x.whishper.libretranslate.yml && grep -q '\- libretranslate' services/compose.x.whishper.libretranslate.yml
+- label: compose.x.whishper.libretranslate.yml sets TRANSLATION_ENDPOINT=libretranslate:5000, adds a python urllib healthcheck on http://127.0.0.1:5000/languages to libretranslate (the image has no curl) and makes whishper depend on it with condition service_healthy, so whishper stays Created on a cold LibreTranslate cache and only reports healthy once the TRANSLATE modal can list languages
+  command: grep -q 'TRANSLATION_ENDPOINT=libretranslate:5000' services/compose.x.whishper.libretranslate.yml && grep -q '127.0.0.1:5000/languages' services/compose.x.whishper.libretranslate.yml && grep -A1 'libretranslate:$' services/compose.x.whishper.libretranslate.yml | grep -q 'condition: service_healthy'
   tags: [whishper, spec, implemented]
+- timing with services/libretranslate/data/local moved aside: libretranslate health starting and whishper Created for ~100s, then in the same 10s tick LT healthy, whishper running/healthy and GET :35060/languages 200 (never 502 while whishper was up) @whishper @spec @implemented @manual
+- label: whishper's entrypoint adds a passwd entry for HARBOR_USER_ID:HARBOR_GROUP_ID and runs the transcription, backend and frontend supervisord programs with user=<uid> (nginx stays root for :80), so uploads and models written mid-session are host-owned without re-running whishper-init
+  command: grep -q 'user=${uid}' services/whishper/entrypoint.sh && grep -q 'HARBOR_USER_ID' services/whishper/entrypoint.sh && grep -q 'chown "$uid:$gid" /app/transcription' services/whishper/entrypoint.sh
+  tags: [whishper, spec, implemented]
+- after POST /api/transcriptions (no init sidecar rerun) the new services/whishper/data/uploads/*.wav is owned by the host user and /proc shows /bin/whishper, node and python3 running as that uid while only nginx master and supervisord are root @whishper @spec @implemented @manual
 - label: PUBLIC_API_HOST comes from HARBOR_WHISHPER_PUBLIC_URL (default empty = same-origin), so the browser fetches /api relative to the page URL and the transcription list, upload and translate work from localhost, a LAN IP and the traefik route alike; the variable is documented in the whishper doc
   command: grep -q 'PUBLIC_API_HOST=${HARBOR_WHISHPER_PUBLIC_URL}' services/compose.whishper.yml && grep -q '^HARBOR_WHISHPER_PUBLIC_URL=""' profiles/default.env && grep -q 'HARBOR_WHISHPER_PUBLIC_URL' docs/2.3.96-Satellite-Whishper.md && ! grep -q 'PUBLIC_API_HOST=http://localhost' services/compose.whishper.yml
   tags: [whishper, spec, implemented]
