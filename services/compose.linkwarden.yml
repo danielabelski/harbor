@@ -32,8 +32,11 @@ services:
       - BROWSER_TIMEOUT=${HARBOR_LINKWARDEN_BROWSER_TIMEOUT}
     volumes:
       - ${HARBOR_LINKWARDEN_WORKSPACE}/data:/data/data
+    # /login renders 200 on an empty database; /api/v1/public/users/1 404s
+    # until the first account exists, which would keep the container in
+    # `starting` (and block service_healthy consumers) until someone signs up
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3000/api/v1/public/users/1"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3000/login"]
       interval: 10s
       timeout: 5s
       retries: 30
