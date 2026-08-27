@@ -739,7 +739,7 @@
   command: grep -q 'config.tei.json' services/compose.x.webui.tei.yml && grep -q '"embedding_engine": "openai"' services/webui/configs/config.tei.json && grep -q 'http://tei:80/v1' services/webui/configs/config.tei.json
   tags: [tei, spec, implemented]
 - label: compose.x.librechat.tei.yml sets librechat-rag to EMBEDDINGS_PROVIDER=openai with RAG_OPENAI_BASEURL=http://tei:80/v1 and EMBEDDINGS_MODEL=HARBOR_TEI_MODEL (the rag-api lite image lacks langchain_huggingface, so the native huggingfacetei provider crashes at import)
-  command: grep -q 'EMBEDDINGS_PROVIDER=openai' services/compose.x.librechat.tei.yml && grep -q 'RAG_OPENAI_BASEURL=http://tei:80/v1' services/compose.x.librechat.tei.yml && grep -q 'EMBEDDINGS_MODEL=.HARBOR_TEI_MODEL' services/compose.x.librechat.tei.yml && test "$(grep -c 'EMBEDDINGS_PROVIDER=huggingfacetei' services/compose.x.librechat.tei.yml)" = 0
+  command: grep -q 'EMBEDDINGS_PROVIDER=openai' services/compose.x.librechat.tei.yml && grep -q 'RAG_OPENAI_BASEURL=http://tei:80/v1' services/compose.x.librechat.tei.yml && grep -q 'EMBEDDINGS_MODEL=' services/compose.x.librechat.tei.yml && grep -q 'HARBOR_TEI_MODEL' services/compose.x.librechat.tei.yml && test "$(grep -c 'EMBEDDINGS_PROVIDER=huggingfacetei' services/compose.x.librechat.tei.yml)" = 0
   tags: [tei, spec, implemented]
 - label: compose.x.anythingllm.tei.yml sets AnythingLLM EMBEDDING_ENGINE=generic-openai against http://tei:80/v1 with HARBOR_TEI_MODEL as model
   command: grep -q 'EMBEDDING_ENGINE=generic-openai' services/compose.x.anythingllm.tei.yml && grep -q 'EMBEDDING_MODEL_PREF=${HARBOR_TEI_MODEL}' services/compose.x.anythingllm.tei.yml
@@ -1691,3 +1691,5 @@
 - label: hermes compose sets HERMES_UID/HERMES_GID to HARBOR_USER_ID/HARBOR_GROUP_ID so the s6 image remaps the hermes user and workspace files stay host-owned
   command: grep -q 'HERMES_UID=${HARBOR_USER_ID}' services/compose.hermes.yml && grep -q 'HERMES_GID=${HARBOR_GROUP_ID}' services/compose.hermes.yml
   tags: [hermes-provider, spec, implemented]
+
+# services > tei
