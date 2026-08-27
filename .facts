@@ -1693,3 +1693,11 @@
   tags: [hermes-provider, spec, implemented]
 
 # services > tei
+
+# services > linkwarden
+- label: linkwarden NEXTAUTH_URL derives from HARBOR_LINKWARDEN_PUBLIC_URL (default http://localhost:HOST_PORT) and the traefik cross-file redefines it to https://linkwarden.HARBOR_TRAEFIK_DOMAIN so a login through traefik stays on the traefik hostname; the doc covers the override
+  command: grep -q "NEXTAUTH_URL=\${HARBOR_LINKWARDEN_PUBLIC_URL:-http://localhost:\${HARBOR_LINKWARDEN_HOST_PORT}}/api/v1/auth" services/compose.linkwarden.yml && grep -q "NEXTAUTH_URL=\${HARBOR_LINKWARDEN_PUBLIC_URL:-https://linkwarden.\${HARBOR_TRAEFIK_DOMAIN}}/api/v1/auth" services/compose.x.traefik.linkwarden.yml && grep -q "^HARBOR_LINKWARDEN_PUBLIC_URL=" profiles/default.env && grep -q "linkwarden.public_url" docs/2.3.97-Satellite-Linkwarden.md
+  tags: [linkwarden, spec, implemented]
+- label: in the linkwarden image the worker picks the OpenAI-compatible backend (OPENAI_API_KEY and OPENAI_MODEL) before the ollama pair in autoTagLink.ts, which backs the doc's precedence claim
+  command: docker run --rm --entrypoint sh ${HARBOR_LINKWARDEN_IMAGE:-ghcr.io/linkwarden/linkwarden}:latest -c 'f=/data/apps/worker/lib/autoTagLink.ts; o=$(grep -n "process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL" $f | head -1 | cut -d: -f1); l=$(grep -n "NEXT_PUBLIC_OLLAMA_ENDPOINT_URL && process.env.OLLAMA_MODEL" $f | head -1 | cut -d: -f1); [ -n "$o" ] && [ -n "$l" ] && [ "$o" -lt "$l" ]'
+  tags: [linkwarden, spec, implemented]
