@@ -6,7 +6,11 @@ services:
     environment:
       # The rag-api "lite" image lacks langchain_huggingface, so the native
       # huggingfacetei provider crashes on import; TEI's OpenAI-compatible
-      # /v1/embeddings endpoint works with the openai provider instead
+      # /v1/embeddings endpoint works with the openai provider instead.
+      # In the bundled LibreChat, only the Agents endpoint's File Search
+      # capability (enabled by default) sends files to rag-api; attaching a
+      # file in a plain chat uses "Upload as Text" and never embeds. See
+      # docs/2.2.26-Backend-Text-Embeddings-Inference.md.
       - EMBEDDINGS_PROVIDER=openai
       - EMBEDDINGS_MODEL=${HARBOR_TEI_MODEL}
       - RAG_OPENAI_BASEURL=http://tei:80/v1

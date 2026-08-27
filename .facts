@@ -753,7 +753,7 @@
 - label: [runtime: webui+tei up] with harbor up webui tei, GET /api/v1/retrieval/embedding reports engine openai at http://tei:80/v1 and uploading a file to /api/v1/files/ produces an openai_embed line in TEI's log (services/tei/check-webui-embed.sh)
   command: ./services/tei/check-webui-embed.sh
   tags: [tei, spec, implemented]
-- label: [runtime: librechat+tei up] with harbor up librechat tei, librechat-rag stays running with RAG_OPENAI_BASEURL=http://tei:80/v1 and ingesting a file through its /embed route (the path LibreChat's UI upload takes) produces an openai_embed line in TEI's log (services/tei/check-librechat-embed.sh)
+- label: [runtime: librechat+tei up] with harbor up librechat tei, librechat-rag stays running with RAG_OPENAI_BASEURL=http://tei:80/v1, and uploading a file to an Agents-endpoint agent as a File Search resource (POST /api/files with endpoint=agents and tool_resource=file_search, the request LibreChat's agent builder sends; plain-chat attachments never embed) is ingested by rag-api and produces an openai_embed line in TEI's log (services/tei/check-librechat-embed.sh)
   command: ./services/tei/check-librechat-embed.sh
   tags: [tei, spec, implemented]
 - label: all four tei cross-files (webui, librechat, anythingllm, lightrag) depend on tei with condition: service_healthy so dependents start only after the model is loaded
