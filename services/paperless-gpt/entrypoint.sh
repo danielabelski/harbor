@@ -9,7 +9,13 @@ if [ -z "$PAPERLESS_API_TOKEN" ]; then
   i=0
   while [ $i -lt 60 ]; do
     resp=$(wget -q -O - --post-data "username=$HARBOR_PAPERLESS_ADMIN_USER&password=$HARBOR_PAPERLESS_ADMIN_PASSWORD" \
-      "$PAPERLESS_BASE_URL/api/token/" 2>/dev/null || true)
+      "$PAPERLESS_BASE_URL/api/token/" 2>/tmp/token.err || true)
+    # paperless is up but rejected the credentials: retrying will not help
+    if grep -q "HTTP/[0-9.]* 400" /tmp/token.err; then
+      echo "[harbor] paperless rejected the credentials for '$HARBOR_PAPERLESS_ADMIN_USER'." >&2
+      echo "[harbor] Fix: ./harbor.sh config set paperless.admin_password <current password>, or set HARBOR_PAPERLESS_GPT_API_TOKEN to a token from Paperless (My Profile > API Auth Token), then restart paperless paperless-gpt" >&2
+      exit 1
+    fi
     token=$(printf '%s' "$resp" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
     if [ -n "$token" ]; then
       export PAPERLESS_API_TOKEN="$token"

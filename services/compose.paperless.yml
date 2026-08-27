@@ -12,6 +12,12 @@ services:
         condition: service_completed_successfully
     ports:
       - ${HARBOR_PAPERLESS_HOST_PORT}:8000
+    # The custom-init hook refuses scripts not owned by root, which a bind
+    # mount from the host cannot satisfy, so copy it in before handing over to s6
+    entrypoint:
+      - /bin/sh
+      - -c
+      - mkdir -p /custom-cont-init.d && cp /harbor/sync-admin-password.sh /custom-cont-init.d/ && chmod 700 /custom-cont-init.d/sync-admin-password.sh && exec /init
     environment:
       - PAPERLESS_REDIS=redis://paperless-valkey:6379
       - PAPERLESS_DBENGINE=sqlite
@@ -31,6 +37,7 @@ services:
       # Single mount: sub-directory bind mounts are created root-owned by Docker
       # after the init sidecar ran, so all paths are redirected under /workspace
       - ${HARBOR_PAPERLESS_WORKSPACE}:/workspace
+      - ./services/paperless/sync-admin-password.sh:/harbor/sync-admin-password.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api/ | grep -qE '^(200|302|401|403)$'"]
       interval: 5s

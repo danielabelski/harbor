@@ -906,6 +906,15 @@
 - label: paperless docs follow the Windmill doc format (#### Starting/Configuration/Integration with Harbor/Troubleshooting/Links plus a Key Features list); paperless-gpt metadata carries a logo and both entries are tagged satellite+tools
   command: grep -q '^#### Integration with Harbor' docs/2.3.94-Satellite-Paperless.md && grep -q 'Key Features' docs/2.3.95-Satellite-Paperless-GPT.md && grep -A4 "'paperless-gpt': {" app/src/serviceMetadata.ts | grep -q 'logo:'
   tags: [paperless, spec, implemented]
+- label: paperless copies services/paperless/sync-admin-password.sh into /custom-cont-init.d before exec /init; the hook sets the existing superuser's password to PAPERLESS_ADMIN_PASSWORD when it no longer matches, so 'harbor config set paperless.admin_password' applies to an existing stack, not only on first boot
+  command: grep -q 'set_password' services/paperless/sync-admin-password.sh && grep -q 'check_password' services/paperless/sync-admin-password.sh && grep -q 'custom-cont-init.d' services/compose.paperless.yml && grep -q 'sync-admin-password.sh:/harbor/sync-admin-password.sh:ro' services/compose.paperless.yml
+  tags: [paperless, spec, implemented]
+- label: paperless-gpt entrypoint exits 1 immediately (no retry loop) when /api/token/ answers HTTP 400, printing a message that names 'harbor config set paperless.admin_password' and HARBOR_PAPERLESS_GPT_API_TOKEN as the fix; only connection failures are retried
+  command: grep -q 'HTTP/\[0-9.\]\* 400' services/paperless-gpt/entrypoint.sh && grep -q 'config set paperless.admin_password' services/paperless-gpt/entrypoint.sh && grep -q 'HARBOR_PAPERLESS_GPT_API_TOKEN' services/paperless-gpt/entrypoint.sh
+  tags: [paperless, spec, implemented]
+- label: both paperless docs warn next to the default admin/admin credentials to change them before exposing the service, and the paperless-gpt doc states its UI has no authentication of its own while holding a full-access admin token
+  command: grep -q 'change before exposing' docs/2.3.94-Satellite-Paperless.md && grep -q 'no login of its own' docs/2.3.95-Satellite-Paperless-GPT.md
+  tags: [paperless, spec, implemented]
 
 ## whishper
 - label: whishper starts via services/whishper/entrypoint.sh which rewrites nginx's hardcoded translate:5000 upstream to TRANSLATION_ENDPOINT (default 127.0.0.1:5000) so the container serves the UI without libretranslate
