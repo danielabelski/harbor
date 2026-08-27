@@ -8,8 +8,8 @@ Userland validation of the five services added after v0.5.5, from a cold start, 
 - Host has no NVIDIA GPU (ROCm); never start `nvidia` cross-files. `harbor.ollama` may already be running — that is fine.
 - Use `docker logs <container>` — never `harbor logs` (tails and hangs).
 - Use `AGENT_BROWSER_SESSION=<handle>` for every `agent-browser` call so sessions don't collide.
-- Always start with `./harbor.sh up --no-defaults <handles>` (avoid pulling in webui/llamacpp), and finish each group with `./harbor.sh down <handles>` — never bare `harbor down`. Leave `ollama` running (do not down it).
-- Ollama models needed: `qwen2.5:0.5b`, `qwen2.5:1.5b`, `nomic-embed-text` (`./harbor.sh ollama pull <model>`).
+- Always start with `./harbor.sh up --no-defaults <handles>` (avoid pulling in webui/llamacpp), and finish each group with `./harbor.sh down <handles>` — never bare `harbor down`. `harbor down <handle>` also stops the other services from the same `up` set (ollama included), so restart ollama with `./harbor.sh up --no-defaults ollama` afterwards when a later group needs it.
+- Ollama models needed: `qwen2.5:1.5b`, `nomic-embed-text` (`./harbor.sh ollama pull <model>`). LightRAG pulls its own `qwen3.5:4b` and derives `lightrag/qwen3.5:4b` + `-query` at container start (first `up` can take minutes; healthcheck allows 30m).
 - Wait for health with a loop over `docker inspect -f '{{.State.Health.Status}}'` or an HTTP poll, up to 5 min; fail the test if not reached.
 - Record for every test: exact commands, HTTP status codes, relevant log excerpts, PASS/FAIL per expectation.
 
@@ -48,21 +48,21 @@ Userland validation of the five services added after v0.5.5, from a cold start, 
 1. `./harbor.sh up --no-defaults lightrag ollama`; poll `http://localhost:35040/health` (200).
 2. Insert a unique fact: `POST /documents/text` with header `X-API-Key: sk-lightrag`, body `{"text":"The Quorvax Lantern was designed by Mira Oduya in Reykjavik in 2021. Its emblem is an orange fox named Tobin.","file_source":"quorvax.txt"}`.
 3. Poll `GET /documents` (same header) until the document status is `processed` (max 5 min).
-4. `POST /query` body `{"query":"Who designed the Quorvax Lantern and what is its emblem?","mode":"hybrid"}`; also `mode":"naive"`.
+4. `POST /query` body `{"query":"Who designed the Quorvax Lantern and what is its emblem?","mode":"hybrid"}`; also `mode":"naive"`. Then run `./services/lightrag/check-graph.sh --stack ollama` (5 hybrid questions, cleans up after itself).
 5. Web UI: `agent-browser open http://localhost:35040/`, enter API key if prompted, snapshot.
 6. Check `docker logs harbor.lightrag` for tracebacks.
 
 **Expectations:**
 1. Health 200; unauthenticated `POST /documents/text` (no header) returns 401/403.
 2. Document reaches `processed`.
-3. At least one of the two query responses contains "Mira Oduya" AND ("fox" or "Tobin").
+3. At least one of the two query responses contains "Mira Oduya" AND ("fox" or "Tobin"); `check-graph.sh` exits 0 and the document list is unchanged afterwards.
 4. UI snapshot shows the Documents view listing `quorvax.txt`.
 5. No Python tracebacks in logs.
 6. `docker exec harbor.lightrag id -u` prints the host uid and `find services/lightrag/data ! -user $USER` is empty.
 
 ### Test 2.2: TEI embedding cross-file
 **Steps:**
-1. `./harbor.sh down lightrag`; `rm -rf services/lightrag/data/rag_storage/*` (contents are user-owned; documented).
+1. `./harbor.sh down lightrag` (this also stops ollama; it is restarted in the next step). No storage cleanup is needed: TEI-embedded data lives in its own `rag_storage/tei/` directory.
 2. `./harbor.sh up --no-defaults lightrag ollama tei`; poll both healths.
 3. Insert the same document as 2.1 and wait for `processed`.
 4. `POST /query` mode `naive`.
@@ -105,13 +105,13 @@ Userland validation of the five services added after v0.5.5, from a cold start, 
 **Steps:**
 1. (paperless still up from 3.1) `./harbor.sh up --no-defaults paperless paperless-gpt ollama`; poll `http://localhost:35051/` until 200.
 2. `docker logs harbor.paperless-gpt 2>&1 | grep -i token`.
-3. Create the tag `paperless-gpt` in paperless (`POST /api/tags/ {"name":"paperless-gpt"}`) and attach it to the Northwind document (`PATCH /api/documents/<id>/ {"tags":[<tagid>]}`).
+3. The `paperless-gpt` and `paperless-gpt-auto` tags are created by the paperless-gpt entrypoint (`[harbor] created paperless tag` in its logs); look up the id via `GET /api/tags/?name__iexact=paperless-gpt` and attach it to the Northwind document (`PATCH /api/documents/<id>/ {"tags":[<tagid>]}`).
 4. `curl localhost:35051/api/documents` — list.
 5. Request suggestions: `POST localhost:35051/api/generate-suggestions` with `{"documents":[{"id":<id>,...}],"generate_titles":true,"generate_tags":true,"generate_correspondents":true}` (mirror the payload the UI sends — inspect via agent-browser network or the paperless-gpt README).
 6. Apply via `PATCH localhost:35051/api/update-documents` with the suggestion, then `GET /api/documents/<id>/` on paperless.
 
 **Expectations:**
-1. Step 2 shows `token acquired` (no auth errors).
+1. Step 2 shows `token acquired` (no auth errors); both trigger tags exist in paperless.
 2. Step 4 lists the Northwind doc.
 3. Step 5 returns a `suggested_title` containing "Northwind" or "Invoice" (case-insensitive) and a non-empty correspondent.
 4. Step 6: paperless document title changed to the suggested title.
@@ -164,7 +164,7 @@ Userland validation of the five services added after v0.5.5, from a cold start, 
 
 ### Test 5.2: AI tagging via Ollama
 **Steps:**
-1. `./harbor.sh up --no-defaults linkwarden ollama` (recreate with cross-file).
+1. `./harbor.sh ollama pull qwen2.5:1.5b` (nothing pulls it automatically); `./harbor.sh up --no-defaults linkwarden ollama` (recreate with cross-file).
 2. Enable auto-tagging for the user AFTER the first login has completed (the first session upserts user defaults and would revert an earlier change): `docker exec harbor.linkwarden-db psql -U postgres -c 'update "User" set "aiTaggingMethod"='"'"'GENERATE'"'"' where username='"'"'tester'"'"';'` (verify the column/enum name in the schema first: `\d "User"`).
 3. Add a second link `https://example.com/` via UI.
 4. Poll `docker logs harbor.linkwarden` for `Auto-tagging` … `Succeeded`; then query `"Tag"` joined to `"Link"` for the new link.
@@ -172,4 +172,4 @@ Userland validation of the five services added after v0.5.5, from a cold start, 
 **Expectations:**
 1. Worker log shows auto-tagging succeeded for the new link.
 2. At least one tag row is associated with that link.
-3. `./harbor.sh down linkwarden` exits 0 and linkwarden containers are gone (note: `harbor down <handle>` also stops backends from the same `up` set — restart ollama if needed).
+3. `./harbor.sh down linkwarden` exits 0 and linkwarden containers are gone (ollama from the same `up` set stops too, see Prerequisites).

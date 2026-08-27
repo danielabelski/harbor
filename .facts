@@ -37,24 +37,6 @@
 - label: s2s > compose.x.s2s.llamacpp.yml sets HARBOR_S2S_MODEL to HARBOR_S2S_LLAMACPP_MODEL (default LiquidAI/LFM2.5-8B-A1B-GGUF:Q8_0 in default.env) so the responses-api warmup against the llamacpp router carries a model name instead of failing 400 'model name is missing'
   command: grep -q 'HARBOR_S2S_MODEL=${HARBOR_S2S_LLAMACPP_MODEL}' services/compose.x.s2s.llamacpp.yml && grep -q 'HARBOR_S2S_LLAMACPP_MODEL=' profiles/default.env
   tags: [services-it, s2s, implemented]
-- label: services > whishper > compose.whishper.yml defines the whishper container (pluja/whishper, port 80) plus a whishper-mongo aux container, and points the backend at it via DB_ENDPOINT/DB_USER/DB_PASS
-  command: grep -q 'whishper-mongo:27017' services/compose.whishper.yml && grep -q 'DB_USER=' services/compose.whishper.yml && grep -q 'container_name: ${HARBOR_CONTAINER_PREFIX}.whishper-mongo' services/compose.whishper.yml
-  tags: [whishper, spec, implemented]
-- label: services > whishper > whishper persists uploads, whisper models, logs and mongo data under HARBOR_WHISHPER_WORKSPACE (default ./services/whishper/data), gitignored
-  command: grep -q 'HARBOR_WHISHPER_WORKSPACE="./services/whishper/data"' profiles/default.env && grep -q '/app/models' services/compose.whishper.yml && grep -q '/data/db' services/compose.whishper.yml && grep -q '^data/' services/whishper/.gitignore
-  tags: [whishper, spec, implemented]
-- label: services > whishper > whisper model list is configurable via HARBOR_WHISHPER_MODELS (WHISPER_MODELS env) and CPU threads via HARBOR_WHISHPER_CPU_THREADS
-  command: grep -q 'WHISPER_MODELS=${HARBOR_WHISHPER_MODELS}' services/compose.whishper.yml && grep -q 'CPU_THREADS=${HARBOR_WHISHPER_CPU_THREADS}' services/compose.whishper.yml && grep -q 'HARBOR_WHISHPER_MODELS=' profiles/default.env
-  tags: [whishper, spec, implemented]
-- label: compose.x.whishper.libretranslate.yml wires translation to Harbor's libretranslate: TRANSLATION_ENDPOINT=libretranslate:5000 and depends_on libretranslate
-  command: grep -q 'TRANSLATION_ENDPOINT=libretranslate:5000' services/compose.x.whishper.libretranslate.yml && grep -q 'libretranslate' services/compose.x.whishper.libretranslate.yml
-  tags: [whishper, spec, implemented]
-- label: services > whishper > compose.x.whishper.nvidia.yml switches to the latest-gpu image tag and reserves all nvidia GPUs
-  command: grep -q 'latest-gpu' services/compose.x.whishper.nvidia.yml && grep -q 'driver: nvidia' services/compose.x.whishper.nvidia.yml
-  tags: [whishper, spec, implemented]
-- label: services > whishper > whishper is registered in serviceMetadata.ts as a satellite/audio service with doc 2.3.96-Satellite-Whishper and docs/2.3.96-Satellite-Whishper.md exists with a screenshot
-  command: grep -q '2.3.96-Satellite-Whishper' app/src/serviceMetadata.ts && test -f docs/2.3.96-Satellite-Whishper.md && test -f docs/harbor-whishper.png
-  tags: [whishper, spec, implemented]
 # project
 
 ## domain
@@ -694,7 +676,7 @@
 - label: lightrag, paperless, paperless-gpt, whishper and linkwarden each have an <handle>-init alpine sidecar (services/<handle>/workspace-init.sh) that chowns the workspace bind mount to HARBOR_USER_ID:HARBOR_GROUP_ID before the main container starts (depends_on service_completed_successfully)
   command: for h in lightrag paperless paperless-gpt whishper linkwarden; do grep -q "$h-init:" services/compose.$h.yml && grep -q "service_completed_successfully" services/compose.$h.yml && test -f services/$h/workspace-init.sh || exit 1; done
   tags: [ownership4, spec, implemented]
-- label: lightrag and linkwarden run as the host user (user: HARBOR_USER_ID:HARBOR_GROUP_ID) and mount their workspace as a single bind mount, because Docker creates per-subdirectory bind mounts root-owned after the init sidecar has run
+- label: lightrag and linkwarden run as the host user (user: HARBOR_USER_ID:HARBOR_GROUP_ID); lightrag mounts its workspace as a single bind mount and linkwarden mounts only the data/ and meili/ targets that linkwarden-init chowns first, because Docker creates missing bind-mount targets root-owned
   command: grep -q "user: \${HARBOR_USER_ID}:\${HARBOR_GROUP_ID}" services/compose.lightrag.yml && grep -q "user: \${HARBOR_USER_ID}:\${HARBOR_GROUP_ID}" services/compose.linkwarden.yml && grep -q "HARBOR_LIGHTRAG_WORKSPACE}:/app/data" services/compose.lightrag.yml && ! grep -q "rag_storage:/app" services/compose.lightrag.yml
   tags: [ownership4, spec, implemented]
 
@@ -839,6 +821,16 @@
   id: l0k
   command: grep -q -- '--keep' services/lightrag/check-graph.sh && grep -q 'delete_document' services/lightrag/check-graph.sh && grep -q 'trap cleanup EXIT' services/lightrag/check-graph.sh && grep -q 'fictional' services/lightrag/check-graph.sh && grep -q 'differs from the pre-check snapshot' services/lightrag/check-graph.sh && grep -q 'not grounded' services/lightrag/check-graph.sh
   tags: [lightrag, spec, implemented]
+- label: lightrag runs entity extraction in JSON mode (ENTITY_EXTRACTION_USE_JSON from HARBOR_LIGHTRAG_EXTRACTION_JSON, default true) because the delimiter-based default yields 0 entities / 0 relations with the shipped local models, which left the Knowledge Graph empty and graph modes answering [no-context]
+  command: grep -q 'ENTITY_EXTRACTION_USE_JSON=${HARBOR_LIGHTRAG_EXTRACTION_JSON}' services/compose.lightrag.yml && grep -q '^HARBOR_LIGHTRAG_EXTRACTION_JSON=true' profiles/default.env
+  tags: [lightrag, spec, implemented]
+- label: lightrag ships RERANK_BY_DEFAULT=false (HARBOR_LIGHTRAG_RERANK_BY_DEFAULT) so queries no longer log 'Rerank is enabled but no rerank model is configured' while RERANK_BINDING is null
+  command: grep -q 'RERANK_BY_DEFAULT=${HARBOR_LIGHTRAG_RERANK_BY_DEFAULT}' services/compose.lightrag.yml && grep -q '^HARBOR_LIGHTRAG_RERANK_BY_DEFAULT=false' profiles/default.env
+  tags: [lightrag, spec, implemented]
+- label: lightrag ollama default model is qwen3.5:4b (qwen2.5:0.5b/1.5b and qwen3:0.6b return garbage for the long graph-mode answer prompts on ROCm Ollama), and the doc names the Open WebUI model id as lightrag.lightrag:latest and describes HARBOR_LIGHTRAG_EXTRACTION_JSON, HARBOR_LIGHTRAG_RERANK_BY_DEFAULT and HARBOR_LIGHTRAG_LLAMACPP_THINKING
+  id: tl8
+  command: grep -q '^HARBOR_LIGHTRAG_OLLAMA_MODEL="qwen3.5:4b"' profiles/default.env && grep -q 'qwen3.5:4b' docs/2.3.93-Satellite-LightRAG.md && grep -q 'lightrag.lightrag:latest' docs/2.3.93-Satellite-LightRAG.md && grep -q 'HARBOR_LIGHTRAG_LLAMACPP_THINKING' docs/2.3.93-Satellite-LightRAG.md
+  tags: [lightrag, spec, implemented]
 
 ## linkwarden
 - label: compose.linkwarden.yml defines linkwarden (port 3000), linkwarden-db (postgres) and linkwarden-meili (meilisearch) with no restart policy
@@ -937,6 +929,21 @@
   command: grep -q 'harbor.port=80' services/compose.whishper.yml && grep -q '^  whishper:' services/compose.whishper.yml
   tags: [whishper, spec, implemented]
 - end-user workflow: with whishper healthy, an espeak-ng wav POSTed to /api/transcriptions (file, language, modelSize, device) reaches status 2 with the spoken text, and with libretranslate up GET /api/translate/<id>/es stores a Spanish translation @whishper @spec @implemented @manual
+- label: compose.whishper.yml defines the whishper container (pluja/whishper, port 80) plus a whishper-mongo aux container, and points the backend at it via DB_ENDPOINT/DB_USER/DB_PASS
+  command: grep -q 'whishper-mongo:27017' services/compose.whishper.yml && grep -q 'DB_USER=' services/compose.whishper.yml && grep -q 'container_name: ${HARBOR_CONTAINER_PREFIX}.whishper-mongo' services/compose.whishper.yml
+  tags: [whishper, spec, implemented]
+- label: whishper persists uploads, whisper models, logs and mongo data under HARBOR_WHISHPER_WORKSPACE (default ./services/whishper/data), gitignored
+  command: grep -q 'HARBOR_WHISHPER_WORKSPACE="./services/whishper/data"' profiles/default.env && grep -q '/app/models' services/compose.whishper.yml && grep -q '/data/db' services/compose.whishper.yml && grep -q '^data/' services/whishper/.gitignore
+  tags: [whishper, spec, implemented]
+- label: whisper model list is configurable via HARBOR_WHISHPER_MODELS (WHISPER_MODELS env) and CPU threads via HARBOR_WHISHPER_CPU_THREADS
+  command: grep -q 'WHISPER_MODELS=${HARBOR_WHISHPER_MODELS}' services/compose.whishper.yml && grep -q 'CPU_THREADS=${HARBOR_WHISHPER_CPU_THREADS}' services/compose.whishper.yml && grep -q 'HARBOR_WHISHPER_MODELS=' profiles/default.env
+  tags: [whishper, spec, implemented]
+- label: compose.x.whishper.nvidia.yml switches to the latest-gpu image tag and reserves all nvidia GPUs
+  command: grep -q 'latest-gpu' services/compose.x.whishper.nvidia.yml && grep -q 'driver: nvidia' services/compose.x.whishper.nvidia.yml
+  tags: [whishper, spec, implemented]
+- label: whishper is registered in serviceMetadata.ts as a satellite/audio service with doc 2.3.96-Satellite-Whishper and docs/2.3.96-Satellite-Whishper.md exists with a screenshot
+  command: grep -q '2.3.96-Satellite-Whishper' app/src/serviceMetadata.ts && test -f docs/2.3.96-Satellite-Whishper.md && test -f docs/harbor-whishper.png
+  tags: [whishper, spec, implemented]
 
 # app
 - label: Harbor App blocks main UI behind a setup gate until setup detail status is ready
@@ -1681,15 +1688,3 @@
 - label: hermes compose sets HERMES_UID/HERMES_GID to HARBOR_USER_ID/HARBOR_GROUP_ID so the s6 image remaps the hermes user and workspace files stay host-owned
   command: grep -q 'HERMES_UID=${HARBOR_USER_ID}' services/compose.hermes.yml && grep -q 'HERMES_GID=${HARBOR_GROUP_ID}' services/compose.hermes.yml
   tags: [hermes-provider, spec, implemented]
-
-# lightrag
-- label: lightrag runs entity extraction in JSON mode (ENTITY_EXTRACTION_USE_JSON from HARBOR_LIGHTRAG_EXTRACTION_JSON, default true) because the delimiter-based default yields 0 entities / 0 relations with the shipped local models, which left the Knowledge Graph empty and graph modes answering [no-context]
-  command: grep -q 'ENTITY_EXTRACTION_USE_JSON=${HARBOR_LIGHTRAG_EXTRACTION_JSON}' services/compose.lightrag.yml && grep -q '^HARBOR_LIGHTRAG_EXTRACTION_JSON=true' profiles/default.env
-  tags: [lightrag, spec, implemented]
-- label: lightrag ships RERANK_BY_DEFAULT=false (HARBOR_LIGHTRAG_RERANK_BY_DEFAULT) so queries no longer log 'Rerank is enabled but no rerank model is configured' while RERANK_BINDING is null
-  command: grep -q 'RERANK_BY_DEFAULT=${HARBOR_LIGHTRAG_RERANK_BY_DEFAULT}' services/compose.lightrag.yml && grep -q '^HARBOR_LIGHTRAG_RERANK_BY_DEFAULT=false' profiles/default.env
-  tags: [lightrag, spec, implemented]
-- label: lightrag ollama default model is qwen3.5:4b (qwen2.5:0.5b/1.5b and qwen3:0.6b return garbage for the long graph-mode answer prompts on ROCm Ollama), and the doc names the Open WebUI model id as lightrag.lightrag:latest and describes HARBOR_LIGHTRAG_EXTRACTION_JSON, HARBOR_LIGHTRAG_RERANK_BY_DEFAULT and HARBOR_LIGHTRAG_LLAMACPP_THINKING
-  id: tl8
-  command: grep -q '^HARBOR_LIGHTRAG_OLLAMA_MODEL="qwen3.5:4b"' profiles/default.env && grep -q 'qwen3.5:4b' docs/2.3.93-Satellite-LightRAG.md && grep -q 'lightrag.lightrag:latest' docs/2.3.93-Satellite-LightRAG.md && grep -q 'HARBOR_LIGHTRAG_LLAMACPP_THINKING' docs/2.3.93-Satellite-LightRAG.md
-  tags: [lightrag, spec, implemented]

@@ -19,7 +19,7 @@ curl -sf -H "Authorization: Bearer $token" "http://localhost:$port/api/v1/retrie
   || { echo "effective embedder is not TEI"; exit 1; }
 
 before=$(docker logs "$tei" 2>&1 | grep -c openai_embed || true)
-tmp=$(mktemp); echo "harbor tei probe $(date +%s)" > "$tmp"
+tmp=$(mktemp -t harbor-tei.XXXXXX); echo "harbor tei probe $(date +%s)" > "$tmp"
 curl -sf -H "Authorization: Bearer $token" -F "file=@$tmp;filename=tei-probe.txt" "http://localhost:$port/api/v1/files/" >/dev/null
 rm -f "$tmp"
 for _ in $(seq 1 30); do
