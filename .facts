@@ -971,14 +971,14 @@
   tags: [whishper, spec, implemented]
 - label: whishper's entrypoint chowns /workspace, /workspace/uploads and /workspace/models to HARBOR_USER_ID:HARBOR_GROUP_ID after mkdir -p on every start, so a force-recreate or restart without whishper-init (e.g. after wiping models/) never leaves a root-owned directory the host-uid worker cannot write to
   command: grep -q "chown \"\$uid:\$gid\" /workspace$" services/whishper/entrypoint.sh && grep -q "chown \"\$uid:\$gid\" \"/workspace/\$d\"" services/whishper/entrypoint.sh
-  tags: [whishper, spec]
+  tags: [whishper, spec, implemented]
 - label: whishper's entrypoint rewrites the transcription and backend supervisord programs to stderr_logfile=/dev/stderr (maxbytes 0), so model downloads and worker crash-loops appear in docker logs harbor.whishper instead of only in data/logs/*.err.log
   command: grep -q "stderr_logfile=/dev/stderr" services/whishper/entrypoint.sh && grep -q "stderr_logfile_maxbytes=0" services/whishper/entrypoint.sh
-  tags: [whishper, spec]
-- verified: with services/whishper/data/models moved aside and whishper force-recreated with --no-deps (no init sidecar), models/ and the three faster-whisper-* dirs are created host-owned, the download log shows on docker logs, the container is healthy within ~30s, and a subsequent browser upload reaches status 2 with find services/whishper/data -path '*/db' -prune -o ! -user $USER -print empty @whishper @spec @manual
+  tags: [whishper, spec, implemented]
+- verified: with services/whishper/data/models moved aside and whishper force-recreated with --no-deps (no init sidecar), models/ and the three faster-whisper-* dirs are created host-owned, the download log shows on docker logs, the container is healthy within ~30s, and a subsequent browser upload reaches status 2 with find services/whishper/data -path '*/db' -prune -o ! -user $USER -print empty @whishper @spec @manual @implemented
 - label: verified: GET /api/translate/<id>/es twice returns 200 then 500 and leaves the row at status 3 with no buttons after a page reload; DELETE /api/transcriptions/<id> returns 200 and removes it, which is what the doc's Translate bullet prescribes as the only recovery
   command: grep -q "curl -X DELETE http://localhost:35060/api/transcriptions/<id>" docs/2.3.96-Satellite-Whishper.md
-  tags: [whishper, spec, manual]
+  tags: [whishper, spec, manual, implemented]
 
 # app
 - label: Harbor App blocks main UI behind a setup gate until setup detail status is ready
