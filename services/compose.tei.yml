@@ -11,6 +11,7 @@ services:
       --model-id ${HARBOR_TEI_MODEL}
       --port 80
       --hostname 0.0.0.0
+      --max-client-batch-size ${HARBOR_TEI_MAX_CLIENT_BATCH_SIZE}
       ${HARBOR_TEI_EXTRA_ARGS}
     volumes:
       # TEI stores downloaded models under /data (HUGGINGFACE_HUB_CACHE); share the host HF cache

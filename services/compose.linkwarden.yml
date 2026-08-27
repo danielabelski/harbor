@@ -2,6 +2,12 @@ services:
   linkwarden:
     container_name: ${HARBOR_CONTAINER_PREFIX}.linkwarden
     image: ${HARBOR_LINKWARDEN_IMAGE}:${HARBOR_LINKWARDEN_VERSION}
+    # Harbor services normally omit restart policies, but this image runs the
+    # web app and the archive worker under `concurrently -k`: an unhandled
+    # worker error (e.g. a browser abort after BROWSER_TIMEOUT) exits the
+    # whole container and strands the archive backlog. Same reasoning as
+    # karakeep/windmill, which also bundle background workers.
+    restart: unless-stopped
     env_file:
       - ./.env
       - ./services/linkwarden/override.env
@@ -19,7 +25,11 @@ services:
       - MEILI_HOST=http://linkwarden-meili:7700
       - MEILI_MASTER_KEY=${HARBOR_LINKWARDEN_MEILI_MASTER_KEY}
       # Harbor services live on a private docker network; allow archiving them
-      - ALLOW_PRIVATE_NETWORK_ACCESS=true
+      - ALLOW_PRIVATE_NETWORK_ACCESS=${HARBOR_LINKWARDEN_ALLOW_PRIVATE_NETWORK_ACCESS}
+      # Archive worker tuning: links processed per batch and the per-link
+      # headless browser timeout in minutes
+      - ARCHIVE_TAKE_COUNT=${HARBOR_LINKWARDEN_ARCHIVE_TAKE_COUNT}
+      - BROWSER_TIMEOUT=${HARBOR_LINKWARDEN_BROWSER_TIMEOUT}
     volumes:
       - ${HARBOR_LINKWARDEN_WORKSPACE}/data:/data/data
     healthcheck:
@@ -45,6 +55,9 @@ services:
     env_file:
       - ./.env
     image: ${HARBOR_LINKWARDEN_DB_IMAGE}:${HARBOR_LINKWARDEN_DB_VERSION}
+    # Sidecars share the main container's policy so a restarted linkwarden
+    # never comes back to a missing database or search index
+    restart: unless-stopped
     environment:
       - POSTGRES_PASSWORD=${HARBOR_LINKWARDEN_DB_PASSWORD}
     healthcheck:
@@ -62,6 +75,7 @@ services:
     env_file:
       - ./.env
     image: ${HARBOR_LINKWARDEN_MEILI_IMAGE}:${HARBOR_LINKWARDEN_MEILI_VERSION}
+    restart: unless-stopped
     # Host user so the index directory stays manageable without sudo
     user: ${HARBOR_USER_ID}:${HARBOR_GROUP_ID}
     environment:
