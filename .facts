@@ -738,8 +738,8 @@
 - label: compose.x.webui.tei.yml renders services/webui/configs/config.tei.json (rag.embedding_engine=openai, rag.openai.api_base_url=http://tei:80/v1, model HARBOR_TEI_MODEL) into Open WebUI's config on every start, so TEI becomes the embedder on existing installs, not only first boot
   command: grep -q 'config.tei.json' services/compose.x.webui.tei.yml && grep -q '"embedding_engine": "openai"' services/webui/configs/config.tei.json && grep -q 'http://tei:80/v1' services/webui/configs/config.tei.json
   tags: [tei, spec, implemented]
-- label: compose.x.librechat.tei.yml switches librechat-rag to EMBEDDINGS_PROVIDER=huggingfacetei with EMBEDDINGS_MODEL=http://tei:80
-  command: grep -q 'EMBEDDINGS_PROVIDER=huggingfacetei' services/compose.x.librechat.tei.yml && grep -q 'EMBEDDINGS_MODEL=http://tei:80' services/compose.x.librechat.tei.yml
+- label: compose.x.librechat.tei.yml sets librechat-rag to EMBEDDINGS_PROVIDER=openai with RAG_OPENAI_BASEURL=http://tei:80/v1 and EMBEDDINGS_MODEL=HARBOR_TEI_MODEL (the rag-api lite image lacks langchain_huggingface, so the native huggingfacetei provider crashes at import)
+  command: grep -q 'EMBEDDINGS_PROVIDER=openai' services/compose.x.librechat.tei.yml && grep -q 'RAG_OPENAI_BASEURL=http://tei:80/v1' services/compose.x.librechat.tei.yml && grep -q 'EMBEDDINGS_MODEL=.HARBOR_TEI_MODEL' services/compose.x.librechat.tei.yml && ! grep -q huggingfacetei services/compose.x.librechat.tei.yml
   tags: [tei, spec, implemented]
 - label: compose.x.anythingllm.tei.yml sets AnythingLLM EMBEDDING_ENGINE=generic-openai against http://tei:80/v1 with HARBOR_TEI_MODEL as model
   command: grep -q 'EMBEDDING_ENGINE=generic-openai' services/compose.x.anythingllm.tei.yml && grep -q 'EMBEDDING_MODEL_PREF=${HARBOR_TEI_MODEL}' services/compose.x.anythingllm.tei.yml
@@ -752,6 +752,9 @@
   tags: [tei, spec, implemented]
 - label: [runtime: webui+tei up] with harbor up webui tei, GET /api/v1/retrieval/embedding reports engine openai at http://tei:80/v1 and uploading a file to /api/v1/files/ produces an openai_embed line in TEI's log (services/tei/check-webui-embed.sh)
   command: ./services/tei/check-webui-embed.sh
+  tags: [tei, spec, implemented]
+- label: [runtime: librechat+tei up] with harbor up librechat tei, librechat-rag stays running with RAG_OPENAI_BASEURL=http://tei:80/v1 and ingesting a file through its /embed route (the path LibreChat's UI upload takes) produces an openai_embed line in TEI's log (services/tei/check-librechat-embed.sh)
+  command: ./services/tei/check-librechat-embed.sh
   tags: [tei, spec, implemented]
 - label: all four tei cross-files (webui, librechat, anythingllm, lightrag) depend on tei with condition: service_healthy so dependents start only after the model is loaded
   command: for f in webui librechat anythingllm lightrag; do grep -q 'condition: service_healthy' services/compose.x.$f.tei.yml || exit 1; done

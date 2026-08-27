@@ -4,6 +4,10 @@ services:
       tei:
         condition: service_healthy
     environment:
-      # rag_api has a native TEI provider; EMBEDDINGS_MODEL carries the server URL
-      - EMBEDDINGS_PROVIDER=huggingfacetei
-      - EMBEDDINGS_MODEL=http://tei:80
+      # The rag-api "lite" image lacks langchain_huggingface, so the native
+      # huggingfacetei provider crashes on import; TEI's OpenAI-compatible
+      # /v1/embeddings endpoint works with the openai provider instead
+      - EMBEDDINGS_PROVIDER=openai
+      - EMBEDDINGS_MODEL=${HARBOR_TEI_MODEL}
+      - RAG_OPENAI_BASEURL=http://tei:80/v1
+      - RAG_OPENAI_API_KEY=sk-tei
