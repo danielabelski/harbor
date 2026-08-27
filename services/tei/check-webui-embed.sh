@@ -2,7 +2,8 @@
 # Runtime proof for `harbor up webui tei`: on a running stack, the persisted
 # Open WebUI embedder is TEI and uploading a file produces an openai_embed
 # request in TEI's log. Requires webui + tei up; mints an admin JWT from the
-# container's WEBUI_SECRET_KEY so no user state is created or changed.
+# container's WEBUI_SECRET_KEY; the uploaded probe file is deleted on exit so no
+# user state is left behind.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 prefix=$(./harbor.sh config get container.prefix 2>/dev/null || echo harbor)
@@ -20,8 +21,14 @@ curl -sf -H "Authorization: Bearer $token" "http://localhost:$port/api/v1/retrie
 
 before=$(docker logs "$tei" 2>&1 | grep -c openai_embed || true)
 tmp=$(mktemp -t harbor-tei.XXXXXX); echo "harbor tei probe $(date +%s)" > "$tmp"
-curl -sf -H "Authorization: Bearer $token" -F "file=@$tmp;filename=tei-probe.txt" "http://localhost:$port/api/v1/files/" >/dev/null
-rm -f "$tmp"
+file_id=""
+cleanup() {
+  rm -f "$tmp"
+  [ -n "$file_id" ] && curl -s -H "Authorization: Bearer $token" -X DELETE "http://localhost:$port/api/v1/files/$file_id" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+file_id=$(curl -sf -H "Authorization: Bearer $token" -F "file=@$tmp;filename=tei-probe.txt" "http://localhost:$port/api/v1/files/" | jq -r '.id // empty')
+[ -n "$file_id" ] || { echo "upload returned no file id"; exit 1; }
 for _ in $(seq 1 30); do
   after=$(docker logs "$tei" 2>&1 | grep -c openai_embed || true)
   [ "$after" -gt "$before" ] && { echo "TEI served $((after-before)) openai_embed request(s) for the upload"; exit 0; }

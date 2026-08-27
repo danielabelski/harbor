@@ -891,8 +891,8 @@
 - label: linkwarden depends on linkwarden-db (pg_isready healthcheck) and linkwarden-meili (/health healthcheck) with condition service_healthy so Prisma migrations do not race the database on a cold start
   command: $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e '(.services["linkwarden-db"].healthcheck.test==["CMD-SHELL","pg_isready -U postgres"]) and (.services["linkwarden-meili"].healthcheck.test|index("http://127.0.0.1:7700/health")) and (.services.linkwarden.depends_on | .["linkwarden-db"].condition=="service_healthy" and .["linkwarden-meili"].condition=="service_healthy")' >/dev/null
   tags: [linkwarden, spec, implemented]
-- label: linkwarden compose defines a curl healthcheck against /api/v1/public/users/1 on port 3000 with a start_period so harbor up reports the container healthy only once the app answers
-  command: $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e '.services.linkwarden.healthcheck | .test[0]=="CMD" and .test[1]=="curl" and (.test|index("http://127.0.0.1:3000/api/v1/public/users/1")) and (.start_period|test("^[0-9]+s$"))' >/dev/null
+- label: linkwarden compose defines a curl healthcheck against /login on port 3000 (not /api/v1/public/users/1, which 404s until the first account exists and kept the container in `starting` on a cold first boot) with a start_period, justified in a compose comment
+  command: $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e '.services.linkwarden.healthcheck | .test==["CMD","curl","-sf","http://127.0.0.1:3000/login"] and (.start_period|test("^[0-9]+s$"))' >/dev/null && ! grep -q "api/v1/public/users/1" services/compose.linkwarden.yml && grep -B4 -m1 '"http://127.0.0.1:3000/login"' services/compose.linkwarden.yml | grep -q "empty database"
   tags: [linkwarden, spec, implemented]
 - label: linkwarden-meili runs as HARBOR_USER_ID:HARBOR_GROUP_ID with MEILI_NO_ANALYTICS=true and mounts HARBOR_LINKWARDEN_WORKSPACE/meili at /meili_data, the same directory linkwarden-init mounts at /workspace/meili and chowns (workspace-init.sh chown -R TARGET_UID:TARGET_GID /workspace), so services/linkwarden/meili stays host-owned
   id: 549
@@ -1904,6 +1904,9 @@
 - label: opencode starts via a Harbor entrypoint wrapper that chowns /root (opencode install + data/config bind mounts) then setpriv-drops to the host user, so opencode.db and config stay host-owned
   command: grep -q 'harbor-entrypoint.sh' services/compose.opencode.yml && grep -q setpriv services/opencode/entrypoint.sh
   tags: [ownership3, spec, implemented]
+- label: tei runs as the host user (user: HARBOR_USER_ID:HARBOR_GROUP_ID, HOME=/tmp since the image has no passwd entry) with a tei-init alpine sidecar (services/tei/cache-init.sh, depends_on service_completed_successfully) that chown -h's root-owned models--* dirs in HARBOR_HF_CACHE/hub before start, so pulled models stay host-owned and the host's huggingface_hub can still lock them
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C tei | jq -e --arg u "$(ev HARBOR_USER_ID):$(ev HARBOR_GROUP_ID)" '.services.tei | .user==$u and .environment.HOME=="/tmp" and .depends_on["tei-init"].condition=="service_completed_successfully"' >/dev/null && C tei | jq -e '.services["tei-init"] | (.image|startswith("alpine")) and (.volumes|map(select(.target=="/data"))|length==1) and .environment.TARGET_UID!=null' >/dev/null && test -x services/tei/cache-init.sh && grep -q "chown -h" services/tei/cache-init.sh && grep -q "models--" services/tei/cache-init.sh && grep -q "##### Ownership" docs/2.2.26-Backend-Text-Embeddings-Inference.md
+  tags: [tei, ownership4, spec, implemented]
 
 # services > hermes
 - label: hermes configure-provider.sh execs the image's entrypoint-dispatch.sh (not the deprecated s6 shim docker/entrypoint.sh, which no longer execs CMD and exits 127)
@@ -1914,6 +1917,15 @@
   tags: [hermes-provider, spec, implemented]
 
 # services > tei
+- label: [runtime: tei up] harbor.tei runs as HARBOR_USER_ID and HARBOR_TEI_MODEL's models--* dir in HARBOR_HF_CACHE/hub contains no entry owned by another uid
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; p=$(ev HARBOR_CONTAINER_PREFIX); [ "$(docker exec $p.tei id -u)" = "$(ev HARBOR_USER_ID)" ] && d="$(ev HARBOR_HF_CACHE)/hub/models--$(ev HARBOR_TEI_MODEL | sed s#/#--#)" && test -d "$d" && [ "$(find "$d" ! -uid "$(ev HARBOR_USER_ID)" | wc -l)" = 0 ]
+  tags: [tei, ownership4, spec, implemented]
+- label: services/tei/check-webui-embed.sh records the uploaded file id and deletes it via DELETE /api/v1/files/<id> in an EXIT trap, so a run leaves no probe file in Open WebUI
+  command: s=services/tei/check-webui-embed.sh; grep -q "trap cleanup EXIT" $s && grep -q "X DELETE .*api/v1/files/\$file_id" $s
+  tags: [tei, spec, implemented]
+- label: tei doc tells non-NVIDIA users not to add nvidia to the selection and quotes the daemon error (could not select device driver) it produces
+  command: grep -q "could not select device driver" docs/2.2.26-Backend-Text-Embeddings-Inference.md
+  tags: [tei, spec, implemented]
 
 # services > linkwarden
 - label: linkwarden NEXTAUTH_URL derives from HARBOR_LINKWARDEN_PUBLIC_URL (default http://localhost:HOST_PORT); the hand-maintained compose.x.linkwarden.traefik.yml (not the seeder-generated compose.x.traefik.linkwarden.yml) redefines it to https://linkwarden.HARBOR_TRAEFIK_DOMAIN so a login through traefik stays on the traefik hostname; the doc covers the override
@@ -1921,4 +1933,19 @@
   tags: [linkwarden, spec, implemented]
 - label: in the linkwarden image the worker picks the OpenAI-compatible backend (OPENAI_API_KEY and OPENAI_MODEL) before the ollama pair in autoTagLink.ts, which backs the doc's precedence claim
   command: docker run --rm --entrypoint sh ${HARBOR_LINKWARDEN_IMAGE:-ghcr.io/linkwarden/linkwarden}:latest -c 'f=/data/apps/worker/lib/autoTagLink.ts; o=$(grep -n "process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL" $f | head -1 | cut -d: -f1); l=$(grep -n "NEXT_PUBLIC_OLLAMA_ENDPOINT_URL && process.env.OLLAMA_MODEL" $f | head -1 | cut -d: -f1); [ -n "$o" ] && [ -n "$l" ] && [ "$o" -lt "$l" ]'
+  tags: [linkwarden, spec, implemented]
+- label: the linkwarden healthcheck passes on an empty database: /login only queries the User table inside an if (token) branch of its getServerSideProps, so an unauthenticated curl renders 200 with zero users (verified in gauntlet round 22: true cold boot, healthy 6s after the container started, User count 0)
+  command: docker run --rm --entrypoint sh ${HARBOR_LINKWARDEN_IMAGE:-ghcr.io/linkwarden/linkwarden}:latest -c 'f=/data/apps/web/pages/login.tsx; g=$(grep -n "const getServerSideProps" $f | cut -d: -f1); t=$(grep -n "const token = await getToken" $f | cut -d: -f1); u=$(grep -n "prisma.user.findUnique" $f | cut -d: -f1); [ -n "$g" ] && [ -n "$t" ] && [ -n "$u" ] && [ "$g" -lt "$t" ] && [ "$t" -lt "$u" ] && sed -n "${t},${u}p" $f | grep -q "if (token)"'
+  tags: [linkwarden, spec, implemented]
+- label: [runtime: linkwarden up] services/linkwarden/check-runtime.sh login registers (idempotently) a harbor-check user via POST /api/v1/users and logs in through /api/v1/auth/callback/credentials with the csrf token, ending with a session whose user.id is set; SKIPs with exit 1 when harbor.linkwarden is not healthy
+  command: services/linkwarden/check-runtime.sh login
+  tags: [linkwarden, spec, implemented]
+- label: [runtime: linkwarden up] end-user workflow: a link POSTed to /api/v1/links by the harbor-check user gets lastPreserved set by the archive worker within 180s and the check deletes it afterwards (services/linkwarden/check-runtime.sh link)
+  command: services/linkwarden/check-runtime.sh link
+  tags: [linkwarden, spec, implemented]
+- label: [runtime: linkwarden ollama|llamacpp|vllm|mlx up] after PUT /api/v1/users/<id> sets aiTaggingMethod GENERATE, a newly saved link becomes aiTagged with at least one tag within 180s (services/linkwarden/check-runtime.sh tags; SKIPs when the container has no NEXT_PUBLIC_OLLAMA_ENDPOINT_URL/CUSTOM_OPENAI_BASE_URL env; fails when the worker marks aiTagged with zero tags)
+  command: services/linkwarden/check-runtime.sh tags
+  tags: [linkwarden, spec, implemented]
+- label: the linkwarden doc has an "Archived but never tagged" troubleshooting entry (verify aiTaggingMethod persisted via the Settings Applied toast or psql, look for Auto-tagging link log lines, run check-runtime.sh tags), uses the UI labels Auto-generate Tags / Based on existing Tags / Based on predefined Tags, mentions RSS Subscriptions, notes pgdata is postgres-owned under Volumes, and states the healthcheck passes on an empty database
+  command: d=docs/2.3.97-Satellite-Linkwarden.md; grep -q "^##### Archived but never tagged" $d && grep -q "aiTaggingMethod" $d && grep -q "Settings Applied" $d && grep -q "Auto-tagging link" $d && grep -q "check-runtime.sh tags" $d && grep -q "Based on existing Tags" $d && grep -q "Based on predefined Tags" $d && grep -q "RSS Subscriptions" $d && grep -A4 "^##### Volumes" $d | grep "pgdata" | grep -q "postgres" && grep -q "empty database" $d
   tags: [linkwarden, spec, implemented]

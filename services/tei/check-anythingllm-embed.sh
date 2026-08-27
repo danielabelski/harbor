@@ -29,7 +29,10 @@ for i in $(seq 1 400); do
 done > "$tmp"
 cleanup() {
   rm -f "$tmp"
-  docs=$(curl -s "${auth[@]}" "$api/workspace/$slug" | jq -r '.workspace.documents[]?.docpath' 2>/dev/null || true)
+  # The workspace only lists the document when embedding succeeded; on a failed
+  # embed the uploaded file still sits in system documents, so collect it by name too
+  docs=$( { curl -s "${auth[@]}" "$api/workspace/$slug" | jq -r '.workspace.documents[]?.docpath' 2>/dev/null;
+    curl -s "${auth[@]}" "$api/system/local-files" | jq -r --arg s "$slug" '.localFiles.items[]? | .name as $dir | .items[]? | select(.name | contains($s)) | "\($dir)/\(.name)"' 2>/dev/null; } | sort -u || true)
   curl -s "${auth[@]}" -X DELETE "$api/workspace/$slug" >/dev/null 2>&1 || true
   [ -n "$docs" ] && curl -s "${auth[@]}" -X DELETE "$api/system/remove-documents" \
     -H 'Content-Type: application/json' \

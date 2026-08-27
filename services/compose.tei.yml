@@ -5,8 +5,17 @@ services:
     env_file:
       - ./.env
       - ./services/tei/override.env
+    # Run as the host user so models pulled into the shared HF hub cache stay
+    # host-owned (a root-run TEI leaves root:root models--* dirs that break the
+    # host's own huggingface_hub). The image has no passwd entry for that uid,
+    # so HOME must be writable; HUGGINGFACE_HUB_CACHE=/data is baked into the image.
+    user: ${HARBOR_USER_ID}:${HARBOR_GROUP_ID}
     environment:
       - HF_TOKEN=${HARBOR_HF_TOKEN}
+      - HOME=/tmp
+    depends_on:
+      tei-init:
+        condition: service_completed_successfully
     command: >
       --model-id ${HARBOR_TEI_MODEL}
       --port 80
@@ -25,5 +34,23 @@ services:
       retries: 30
       # First start downloads the model; allow a long grace period
       start_period: 30m
+    networks:
+      - harbor-network
+
+  # Init sidecar: fixes ownership of root-owned models--* dirs left in the hub
+  # cache by earlier root-run containers before tei starts as the host user.
+  tei-init:
+    container_name: ${HARBOR_CONTAINER_PREFIX}.tei-init
+    image: alpine:3.20
+    env_file:
+      - ./.env
+      - ./services/tei/override.env
+    environment:
+      TARGET_UID: ${HARBOR_USER_ID}
+      TARGET_GID: ${HARBOR_GROUP_ID}
+    entrypoint: ["/bin/sh", "/init.sh"]
+    volumes:
+      - ./services/tei/cache-init.sh:/init.sh:ro
+      - ${HARBOR_HF_CACHE:-./services/tei/.hf-cache}/hub:/data
     networks:
       - harbor-network
