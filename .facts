@@ -857,8 +857,8 @@
   tags: [lightrag, spec, implemented]
 
 ## linkwarden
-- label: compose.linkwarden.yml defines linkwarden (port 3000), linkwarden-db (postgres) and linkwarden-meili (meilisearch) with no restart policy
-  command: $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e '(.services.linkwarden.ports|length==1 and .[0].target==3000) and (.services["linkwarden-db"].image|startswith("postgres:")) and (.services["linkwarden-meili"].image|test("meilisearch")) and ([.services[]|.restart]|all(.==null))' >/dev/null
+- label: compose.linkwarden.yml sets restart: unless-stopped on linkwarden, linkwarden-db and linkwarden-meili (justified in a compose comment: the image runs web+worker under concurrently -k, so a worker crash exits the container) while linkwarden-init keeps no policy; linkwarden publishes port 3000, db is postgres, meili is meilisearch
+  command: $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e '(.services.linkwarden.ports|length==1 and .[0].target==3000) and (.services["linkwarden-db"].image|startswith("postgres:")) and (.services["linkwarden-meili"].image|test("meilisearch")) and ([.services.linkwarden,.services["linkwarden-db"],.services["linkwarden-meili"]][]|.restart=="unless-stopped") and (.services["linkwarden-init"].restart==null)' >/dev/null && grep -B6 -m1 "^    restart: unless-stopped" services/compose.linkwarden.yml | grep -q "concurrently -k"
   tags: [linkwarden, spec, implemented]
 - label: every HARBOR_LINKWARDEN_* var referenced by linkwarden compose files is defined in profiles/default.env
   command: for v in $(grep -oh 'HARBOR_LINKWARDEN_[A-Z_]*' services/compose.linkwarden.yml services/compose.x.linkwarden.*.yml | sort -u); do grep -q "^$v=" profiles/default.env || { echo missing $v; exit 1; }; done
@@ -889,6 +889,16 @@
 - label: the linkwarden doc follows the Windmill format: #### Starting/Configuration/Integration with Harbor/Troubleshooting/Links headings, Key Features list, Volumes and File ownership subsections
   command: d=docs/2.3.97-Satellite-Linkwarden.md; prev=0; for h in '#### Starting' '#### Configuration' '#### Integration with Harbor' '#### Troubleshooting' '#### Links'; do n=$(grep -n -m1 "^$h$" $d | cut -d: -f1); [ -n "$n" ] && [ "$n" -gt "$prev" ] || exit 1; prev=$n; done; [ "$(grep -A4 '^\*\*Key Features' $d | grep -c '^- ')" -ge 3 ] && grep -q '^##### Volumes' $d && grep -q '^##### File ownership' $d && awk '/^#{4,5} /{if(h!=""&&c<1&&!(h~/^#### /&&$0~/^##### /)){exit 1};h=$0;c=0;next} /^\s*$/{next} {c++} END{exit (c<1)}' $d
   tags: [linkwarden, spec, implemented]
+- label: linkwarden runs as HARBOR_USER_ID:HARBOR_GROUP_ID and mounts HARBOR_LINKWARDEN_WORKSPACE/data at /data/data, the same directory linkwarden-init mounts at /workspace/data and chowns before linkwarden starts, so archived files under services/linkwarden/data stay host-owned
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e --arg u "$(ev HARBOR_USER_ID):$(ev HARBOR_GROUP_ID)" '.services.linkwarden as $l | $l.user==$u and ([$l.volumes[]|select(.target=="/data/data")]|length==1) and (([$l.volumes[]|select(.target=="/data/data")][0].source) == ([.services["linkwarden-init"].volumes[]|select(.target=="/workspace/data")][0].source)) and ($l.depends_on["linkwarden-init"].condition=="service_completed_successfully")' >/dev/null
+  tags: [linkwarden, spec, implemented]
+- label: linkwarden exposes ALLOW_PRIVATE_NETWORK_ACCESS, ARCHIVE_TAKE_COUNT and BROWSER_TIMEOUT as HARBOR_LINKWARDEN_* config (defaults true/5/5) and the doc lists all three
+  command: for v in ALLOW_PRIVATE_NETWORK_ACCESS ARCHIVE_TAKE_COUNT BROWSER_TIMEOUT; do grep -q "^HARBOR_LINKWARDEN_$v=" profiles/default.env && grep -q "HARBOR_LINKWARDEN_$v" docs/2.3.97-Satellite-Linkwarden.md || { echo $v; exit 1; }; done; ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e --arg a "$(ev HARBOR_LINKWARDEN_ALLOW_PRIVATE_NETWORK_ACCESS)" --arg c "$(ev HARBOR_LINKWARDEN_ARCHIVE_TAKE_COUNT)" --arg t "$(ev HARBOR_LINKWARDEN_BROWSER_TIMEOUT)" '.services.linkwarden.environment | .ALLOW_PRIVATE_NETWORK_ACCESS==$a and .ARCHIVE_TAKE_COUNT==$c and .BROWSER_TIMEOUT==$t' >/dev/null
+  tags: [linkwarden, spec, implemented]
+- label: the linkwarden doc Troubleshooting has a 'Linkwarden container exited after archiving' entry (concurrently -k chain, EPIPE, restart policy, docker start resumes the backlog), covers the browser-timeout and Monolith buffer log lines, a security note on ALLOW_PRIVATE_NETWORK_ACCESS with the config to disable it, a version-pinning warning, and per-backend (ollama/llamacpp/vllm/mlx) tag verification with the tagging-lags-archiving caveat
+  command: d=docs/2.3.97-Satellite-Linkwarden.md; grep -q "^##### Linkwarden container exited after archiving" $d && grep -q "concurrently -k" $d && grep -q "write EPIPE" $d && grep -q "docker start harbor.linkwarden" $d && grep -q "restart: unless-stopped" $d && grep -q "Browser has been open for more than 5 minutes" $d && grep -q "Monolith output exceeded buffer limit" $d && grep -q "^\*\*Security note:\*\*" $d && grep -q "linkwarden.allow_private_network_access false" $d && grep -q "PLAYWRIGHT_BROWSERS_PATH" $d && grep -q "llamacpp:8080/v1/models" $d && grep -q "vllm:8000/v1/models" $d && grep -q "lag" $d
+  tags: [linkwarden, spec, implemented]
+- after a 21-link bulk add including https://www.ietf.org/rfc/rfc2616.txt the worker crash (browser timeout -> write EPIPE -> exit 1) no longer leaves harbor.linkwarden stopped: Docker restarts it and the remaining links are archived without manual intervention (verified manually in gauntlet round 17) @linkwarden @spec @implemented
 
 ## paperless
 - label: compose.paperless-gpt.yml resolved alone has no depends_on paperless, so paperless-gpt is valid standalone
@@ -1034,65 +1044,115 @@
   tags: [paperless, traefik, spec, implemented]
 
 ## whishper
-- label: whishper starts via services/whishper/entrypoint.sh which rewrites nginx's hardcoded translate:5000 upstream to TRANSLATION_ENDPOINT (default 127.0.0.1:5000) so the container serves the UI without libretranslate
-  command: grep -q 'proxy_pass http://${upstream}' services/whishper/entrypoint.sh && grep -q '/harbor/entrypoint.sh' services/compose.whishper.yml
+- label: whishper starts via services/whishper/entrypoint.sh (compose entrypoint /bin/sh /harbor/entrypoint.sh, bind-mounted read-only) which, executed under stubs against the image's nginx.conf, rewrites the hardcoded proxy_pass http://translate:5000 to http://127.0.0.1:5000 when TRANSLATION_ENDPOINT is unset (other proxy_pass lines untouched) and writes the result back to /etc/nginx/nginx.conf, so the container serves the UI without libretranslate
+  id: r3y
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper | jq -e '.services.whishper | .entrypoint==["/bin/sh","/harbor/entrypoint.sh"] and ([.volumes[]|select(.target=="/harbor/entrypoint.sh" and .read_only==true and (.source|endswith("/services/whishper/entrypoint.sh")))]|length==1)' >/dev/null && services/whishper/check-entrypoint.sh nginx-default
   tags: [whishper, spec, implemented]
-- label: whishper entrypoint symlinks /app/uploads and /app/models into the single /workspace mount and the healthcheck also probes the transcription worker (127.0.0.1:8000/healthcheck/), so healthy means all WHISPER_MODELS are downloaded and jobs will not fail with status -1
-  command: grep -q "ln -s \"/workspace/\$d\" \"/app/\$d\"" services/whishper/entrypoint.sh && grep -q "8000/healthcheck/" services/compose.whishper.yml && grep -q "start_period: 30m" services/compose.whishper.yml
+- label: with TRANSLATION_ENDPOINT=libretranslate:5000 the entrypoint's nginx rewrite (executed under stubs) yields proxy_pass http://libretranslate:5000; in /etc/nginx/nginx.conf
+  id: 8sx
+  command: services/whishper/check-entrypoint.sh nginx-endpoint
   tags: [whishper, spec, implemented]
-- label: whishper-mongo has a mongosh ping healthcheck and whishper depends on it with condition service_healthy, so the Go backend never boots against an unready database
-  command: grep -q 'ping: 1' services/compose.whishper.yml && grep -A1 'whishper-mongo:' services/compose.whishper.yml | grep -q 'service_healthy'
+- label: whishper entrypoint, executed under stubs, runs mkdir -p /workspace/{uploads,models}, rm -rf /app/{uploads,models} and ln -s /workspace/<d> /app/<d> (exactly two symlinks) so the image's hardcoded paths land in the single /workspace bind mount
+  id: pj3
+  command: services/whishper/check-entrypoint.sh symlinks
   tags: [whishper, spec, implemented]
-- label: whishper has a whishper-init alpine sidecar (services/whishper/workspace-init.sh) that chowns the workspace, uploads, models and logs to HARBOR_USER_ID:HARBOR_GROUP_ID before the main container starts, leaving db/ to the mongo user
-  command: grep -q 'for d in uploads models logs' services/whishper/workspace-init.sh && grep -A1 'whishper-init:' services/compose.whishper.yml | grep -q service_completed_successfully
+- label: the resolved whishper healthcheck is CMD-SHELL curl -sf on 127.0.0.1:80/api/transcriptions AND 127.0.0.1:8000/healthcheck/ with interval 10s, retries 30 and start_period 30m, so healthy means the worker has finished downloading all WHISPER_MODELS and jobs will not fail with status -1
+  id: h9k
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper | jq -e '.services.whishper.healthcheck | .test==["CMD-SHELL","curl -sf http://127.0.0.1:80/api/transcriptions >/dev/null && curl -sf http://127.0.0.1:8000/healthcheck/ >/dev/null"] and .interval=="10s" and .retries==30 and .start_period=="30m0s"' >/dev/null
   tags: [whishper, spec, implemented]
-- label: compose.x.whishper.libretranslate.yml sets TRANSLATION_ENDPOINT=libretranslate:5000, adds a python urllib healthcheck on http://127.0.0.1:5000/languages to libretranslate (the image has no curl) and makes whishper depend on it with condition service_healthy, so whishper stays Created on a cold LibreTranslate cache and only reports healthy once the TRANSLATE modal can list languages
-  command: grep -q 'TRANSLATION_ENDPOINT=libretranslate:5000' services/compose.x.whishper.libretranslate.yml && grep -q '127.0.0.1:5000/languages' services/compose.x.whishper.libretranslate.yml && grep -A1 'libretranslate:$' services/compose.x.whishper.libretranslate.yml | grep -q 'condition: service_healthy'
+- label: resolved config: whishper-mongo's healthcheck is CMD-SHELL mongosh ping (db.runCommand({ ping: 1 }).ok piped to grep -q 1, interval 5s, start_period 20s) and whishper depends on whishper-mongo with condition service_healthy, so the Go backend never boots against an unready database
+  id: epv
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper | jq -e '.services["whishper-mongo"].healthcheck as $h | ($h.test==["CMD-SHELL","mongosh --quiet --eval '"'"'db.runCommand({ ping: 1 }).ok'"'"' | grep -q 1"]) and $h.interval=="5s" and $h.start_period=="20s" and .services.whishper.depends_on["whishper-mongo"].condition=="service_healthy"' >/dev/null
   tags: [whishper, spec, implemented]
-- timing with services/libretranslate/data/local moved aside: libretranslate health starting and whishper Created for ~100s, then in the same 10s tick LT healthy, whishper running/healthy and GET :35060/languages 200 (never 502 while whishper was up) @whishper @spec @implemented @manual
-- label: whishper's entrypoint adds a passwd entry for HARBOR_USER_ID:HARBOR_GROUP_ID and runs the transcription, backend and frontend supervisord programs with user=<uid> (nginx stays root for :80), so uploads and models written mid-session are host-owned without re-running whishper-init
-  command: grep -q 'user=${uid}' services/whishper/entrypoint.sh && grep -q 'HARBOR_USER_ID' services/whishper/entrypoint.sh && grep -q 'chown "$uid:$gid" /app/transcription' services/whishper/entrypoint.sh
+- label: resolved config: whishper-init is an alpine:3.20 sidecar running /bin/sh /init.sh from a read-only bind of services/whishper/workspace-init.sh with TARGET_UID/TARGET_GID=HARBOR_USER_ID/HARBOR_GROUP_ID and the same /workspace source as whishper, and whishper depends on it with condition service_completed_successfully
+  id: 58u
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper | jq -e --arg u "$(ev HARBOR_USER_ID)" --arg g "$(ev HARBOR_GROUP_ID)" '.services as $s | ($s.whishper.depends_on["whishper-init"].condition=="service_completed_successfully") and ($s["whishper-init"] | .image=="alpine:3.20" and .entrypoint==["/bin/sh","/init.sh"] and .environment.TARGET_UID==$u and .environment.TARGET_GID==$g and ([.volumes[]|select(.target=="/init.sh" and .read_only==true and (.source|endswith("/services/whishper/workspace-init.sh")))]|length==1) and ([.volumes[]|select(.target=="/workspace")][0].source == ($s.whishper.volumes[]|select(.target=="/workspace")|.source)))' >/dev/null
   tags: [whishper, spec, implemented]
-- after POST /api/transcriptions (no init sidecar rerun) the new services/whishper/data/uploads/*.wav is owned by the host user and /proc shows /bin/whishper, node and python3 running as that uid while only nginx master and supervisord are root @whishper @spec @implemented @manual
-- label: PUBLIC_API_HOST comes from HARBOR_WHISHPER_PUBLIC_URL (default empty = same-origin), so the browser fetches /api relative to the page URL and the transcription list, upload and translate work from localhost, a LAN IP and the traefik route alike; the variable is documented in the whishper doc
-  command: grep -q 'PUBLIC_API_HOST=${HARBOR_WHISHPER_PUBLIC_URL}' services/compose.whishper.yml && grep -q '^HARBOR_WHISHPER_PUBLIC_URL=""' profiles/default.env && grep -q 'HARBOR_WHISHPER_PUBLIC_URL' docs/2.3.96-Satellite-Whishper.md && ! grep -q 'PUBLIC_API_HOST=http://localhost' services/compose.whishper.yml
+- label: services/whishper/workspace-init.sh, executed under stubbed chown/mkdir with TARGET_UID=4242 TARGET_GID=4343, chowns /workspace non-recursively and mkdir -p + chown -R exactly uploads, models and logs (4 chowns total), never touching db/ which belongs to the mongo user
+  id: q2m
+  command: services/whishper/check-entrypoint.sh init
   tags: [whishper, spec, implemented]
-- end-user workflow via the browser on a non-localhost origin (https://whishper.<domain> through traefik, http://<lan-ip>:35060): the transcription list renders, an uploaded wav reaches status 2, and with libretranslate up the TRANSLATE modal stores an es translation, with every /api call going to the page origin @whishper @spec @implemented @manual
-- label: compose.x.traefik.whishper.yml routes whishper.<HARBOR_TRAEFIK_DOMAIN> to the container's port 80 on the traefik-public network
-  command: grep -q 'loadbalancer.server.port=80' services/compose.x.traefik.whishper.yml && grep -q 'traefik-public' services/compose.x.traefik.whishper.yml
+- label: resolved config with the libretranslate cross-file: whishper gets TRANSLATION_ENDPOINT=libretranslate:5000 and depends on libretranslate with condition service_healthy, and libretranslate's healthcheck is a python urllib.request.urlopen of http://127.0.0.1:5000/languages (the image has no curl) with start_period 30m, so whishper stays Created on a cold LibreTranslate cache and only reports healthy once the TRANSLATE modal can list languages
+  id: wyd
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper libretranslate | jq -e '.services as $s | $s.whishper.environment.TRANSLATION_ENDPOINT=="libretranslate:5000" and $s.whishper.depends_on.libretranslate.condition=="service_healthy" and ($s.libretranslate.healthcheck | .test[0]=="CMD-SHELL" and (.test[1]|test("^python -c .*urllib\\.request\\.urlopen\\(.http://127\\.0\\.0\\.1:5000/languages.")) and .start_period=="30m0s" and .retries==30)' >/dev/null && $(./harbor.sh cmd --no-defaults whishper) config --format json | jq -e '.services.whishper | (.environment|has("TRANSLATION_ENDPOINT")|not) and (.depends_on|has("libretranslate")|not)' >/dev/null
+  tags: [whishper, spec, implemented]
+- label: timing with services/libretranslate/data/local moved aside: libretranslate health starting and whishper Created for ~100s, then in the same 10s tick LT healthy, whishper running/healthy and GET :35060/languages 200 (never 502 while whishper was up)
+  id: oxy
+  tags: [whishper, spec, implemented, manual]
+- label: whishper's entrypoint adds group/passwd entries for HARBOR_USER_ID:HARBOR_GROUP_ID (HOME=/workspace) when getent finds none, and its supervisord rewrite, executed under stubs against the image's supervisord.conf, adds user=<uid> to exactly the transcription, backend and frontend programs (nginx stays root for :80) and execs supervisord -c /tmp/supervisord.conf, so uploads and models written mid-session are host-owned without re-running whishper-init
+  id: 27y
+  command: services/whishper/check-entrypoint.sh passwd && services/whishper/check-entrypoint.sh supervisord
+  tags: [whishper, spec, implemented]
+- label: [runtime: whishper up] after POST /api/transcriptions the new HARBOR_WHISHPER_WORKSPACE/uploads/*.wav is owned by the host uid and /proc in the container shows /bin/whishper, node and python3 running non-root while nginx master and supervisord are root (services/whishper/check-runtime.sh ownership; SKIPs with exit 1 when harbor.whishper is not healthy)
+  id: ag7
+  command: services/whishper/check-runtime.sh ownership
+  tags: [whishper, spec, implemented]
+- label: resolved config: PUBLIC_API_HOST equals HARBOR_WHISHPER_PUBLIC_URL from .env (default "" in profiles/default.env = same-origin, so the browser fetches /api relative to the page URL from localhost, a LAN IP and the traefik route alike), PUBLIC_INTERNAL_API_HOST is http://127.0.0.1:80, and an override HARBOR_WHISHPER_PUBLIC_URL=http://x:1 propagates; the variable is documented in the whishper doc
+  id: sxv
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper | jq -e --arg v "$(ev HARBOR_WHISHPER_PUBLIC_URL)" '.services.whishper.environment | .PUBLIC_API_HOST==$v and .PUBLIC_INTERNAL_API_HOST=="http://127.0.0.1:80"' >/dev/null && HARBOR_WHISHPER_PUBLIC_URL=http://x:1 C whishper | jq -e '.services.whishper.environment.PUBLIC_API_HOST=="http://x:1"' >/dev/null && grep -q '^HARBOR_WHISHPER_PUBLIC_URL=""$' profiles/default.env && grep -q 'HARBOR_WHISHPER_PUBLIC_URL' docs/2.3.96-Satellite-Whishper.md
+  tags: [whishper, spec, implemented]
+- label: end-user workflow via the browser on a non-localhost origin (https://whishper.<domain> through traefik, http://<lan-ip>:35060): the transcription list renders, an uploaded wav reaches status 2, and with libretranslate up the TRANSLATE modal stores an es translation, with every /api call going to the page origin
+  id: jdm
+  tags: [whishper, spec, implemented, manual]
+- label: resolved config with the traefik cross-file: whishper carries traefik.enable=true, router rule Host(`whishper.<HARBOR_TRAEFIK_DOMAIN>`), loadbalancer.server.port=80, entrypoints=websecure, tls=true and joins the traefik-public network
+  id: wnr
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper traefik | jq -e --arg d "$(ev HARBOR_TRAEFIK_DOMAIN)" '.services.whishper | .labels["traefik.enable"]=="true" and .labels["traefik.http.routers.whishper.rule"]==("Host(`whishper."+$d+"`)") and .labels["traefik.http.services.whishper.loadbalancer.server.port"]=="80" and .labels["traefik.http.routers.whishper.entrypoints"]=="websecure" and .labels["traefik.http.routers.whishper.tls"]=="true" and (.networks|has("traefik-public"))' >/dev/null
   tags: [whishper, spec, implemented]
 - label: every HARBOR_WHISHPER_* variable in profiles/default.env is documented in docs/2.3.96-Satellite-Whishper.md, which also embeds docs/harbor-whishper.png
+  id: fbn
   command: for v in $(grep -o '^HARBOR_WHISHPER_[A-Z_]*' profiles/default.env); do grep -q "$v" docs/2.3.96-Satellite-Whishper.md || exit 1; done; grep -q 'harbor-whishper.png' docs/2.3.96-Satellite-Whishper.md && test -f docs/harbor-whishper.png
   tags: [whishper, spec, implemented]
-- label: the whishper container carries harbor.service=whishper and harbor.port=80 labels, and the compose main service name matches the handle
-  command: grep -q 'harbor.port=80' services/compose.whishper.yml && grep -q '^  whishper:' services/compose.whishper.yml
+- label: resolved config: the whishper container is named <HARBOR_CONTAINER_PREFIX>.whishper with labels harbor.service=whishper and harbor.port=80 exactly, publishes HARBOR_WHISHPER_HOST_PORT (default 35060) to container port 80, and the compose main service name matches the handle
+  id: 8f7
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper | jq -e --arg p "$(ev HARBOR_CONTAINER_PREFIX)" --arg hp "$(ev HARBOR_WHISHPER_HOST_PORT)" '.services.whishper | .container_name==($p+".whishper") and .labels["harbor.service"]=="whishper" and .labels["harbor.port"]=="80" and ([.ports[]|select(.target==80 and .published==$hp)]|length==1)' >/dev/null && grep -q '^HARBOR_WHISHPER_HOST_PORT=35060$' profiles/default.env
   tags: [whishper, spec, implemented]
-- end-user workflow: with whishper healthy, an espeak-ng wav POSTed to /api/transcriptions (file, language, modelSize, device) reaches status 2 with the spoken text, and with libretranslate up GET /api/translate/<id>/es stores a Spanish translation @whishper @spec @implemented @manual
-- label: compose.whishper.yml defines the whishper container (pluja/whishper, port 80) plus a whishper-mongo aux container, and points the backend at it via DB_ENDPOINT/DB_USER/DB_PASS
-  command: grep -q 'whishper-mongo:27017' services/compose.whishper.yml && grep -q 'DB_USER=' services/compose.whishper.yml && grep -q 'container_name: ${HARBOR_CONTAINER_PREFIX}.whishper-mongo' services/compose.whishper.yml
+- label: [runtime: whishper up] end-user workflow: an espeak-ng wav POSTed to /api/transcriptions (file, language, modelSize=base, device) reaches status 2 with the spoken words in result.text and the check deletes its transcription afterwards (services/whishper/check-runtime.sh transcribe; SKIPs with exit 1 when harbor.whishper is not healthy)
+  id: 4zu
+  command: services/whishper/check-runtime.sh transcribe
   tags: [whishper, spec, implemented]
-- label: whishper persists uploads, whisper models, logs and mongo data under HARBOR_WHISHPER_WORKSPACE (default ./services/whishper/data), gitignored
-  command: grep -q 'HARBOR_WHISHPER_WORKSPACE="./services/whishper/data"' profiles/default.env && grep -q '/app/models' services/compose.whishper.yml && grep -q '/data/db' services/compose.whishper.yml && grep -q '^data/' services/whishper/.gitignore
+- label: [runtime: whishper libretranslate up] GET /api/translate/<id>/es on a fresh transcription returns 200 and stores a translation (services/whishper/check-runtime.sh translate; SKIPs with exit 1 unless both harbor.whishper and harbor.libretranslate are healthy)
+  id: t7e
+  command: services/whishper/check-runtime.sh translate
   tags: [whishper, spec, implemented]
-- label: whisper model list is configurable via HARBOR_WHISHPER_MODELS (WHISPER_MODELS env) and CPU threads via HARBOR_WHISHPER_CPU_THREADS
-  command: grep -q 'WHISPER_MODELS=${HARBOR_WHISHPER_MODELS}' services/compose.whishper.yml && grep -q 'CPU_THREADS=${HARBOR_WHISHPER_CPU_THREADS}' services/compose.whishper.yml && grep -q 'HARBOR_WHISHPER_MODELS=' profiles/default.env
+- label: resolved config: whishper runs HARBOR_WHISHPER_IMAGE:HARBOR_WHISHPER_VERSION (default pluja/whishper:latest) and whishper-mongo runs HARBOR_WHISHPER_MONGO_IMAGE:VERSION (default mongo:7) named <prefix>.whishper-mongo, with the backend pointed at it via DB_ENDPOINT=whishper-mongo:27017 and DB_USER/DB_PASS equal to mongo's MONGO_INITDB_ROOT_USERNAME/PASSWORD from HARBOR_WHISHPER_DB_USER/PASSWORD
+  id: 5rs
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper | jq -e --arg p "$(ev HARBOR_CONTAINER_PREFIX)" --arg i "$(ev HARBOR_WHISHPER_IMAGE):$(ev HARBOR_WHISHPER_VERSION)" --arg mi "$(ev HARBOR_WHISHPER_MONGO_IMAGE):$(ev HARBOR_WHISHPER_MONGO_VERSION)" --arg u "$(ev HARBOR_WHISHPER_DB_USER)" --arg pw "$(ev HARBOR_WHISHPER_DB_PASSWORD)" '.services as $s | $s.whishper.image==$i and $s["whishper-mongo"].image==$mi and $s["whishper-mongo"].container_name==($p+".whishper-mongo") and ($s.whishper.environment | .DB_ENDPOINT=="whishper-mongo:27017" and .DB_USER==$u and .DB_PASS==$pw) and ($s["whishper-mongo"].environment | .MONGO_INITDB_ROOT_USERNAME==$u and .MONGO_INITDB_ROOT_PASSWORD==$pw)' >/dev/null && HARBOR_WHISHPER_DB_USER=zz C whishper | jq -e '.services.whishper.environment.DB_USER=="zz" and .services["whishper-mongo"].environment.MONGO_INITDB_ROOT_USERNAME=="zz"' >/dev/null && grep -q '^HARBOR_WHISHPER_IMAGE="pluja/whishper"$' profiles/default.env && grep -q '^HARBOR_WHISHPER_MONGO_VERSION="7"$' profiles/default.env
   tags: [whishper, spec, implemented]
-- label: compose.x.whishper.nvidia.yml switches to the ${HARBOR_WHISHPER_VERSION}-gpu image tag and reserves all nvidia GPUs
-  command: grep -q 'HARBOR_WHISHPER_VERSION}-gpu' services/compose.x.whishper.nvidia.yml && grep -q 'driver: nvidia' services/compose.x.whishper.nvidia.yml
+- label: resolved config: HARBOR_WHISHPER_WORKSPACE (default ./services/whishper/data, gitignored) is bound to /workspace and <workspace>/logs to /var/log/whishper on whishper and <workspace>/db to /data/db on whishper-mongo, with a HARBOR_WHISHPER_WORKSPACE=/tmp/wsx override moving all three, and the entrypoint symlinks uploads/models into /workspace
+  id: ik8
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper | jq -e --arg w "$(ev HARBOR_WHISHPER_WORKSPACE | sed 's#^\./#'"$PWD"'/#')" '.services as $s | ($s.whishper.volumes[]|select(.target=="/workspace")|.source)==$w and ($s.whishper.volumes[]|select(.target=="/var/log/whishper")|.source)==($w+"/logs") and ($s["whishper-mongo"].volumes[]|select(.target=="/data/db")|.source)==($w+"/db")' >/dev/null && HARBOR_WHISHPER_WORKSPACE=/tmp/wsx C whishper | jq -e '.services as $s | ($s.whishper.volumes[]|select(.target=="/workspace")|.source)=="/tmp/wsx" and ($s.whishper.volumes[]|select(.target=="/var/log/whishper")|.source)=="/tmp/wsx/logs" and ($s["whishper-mongo"].volumes[]|select(.target=="/data/db")|.source)=="/tmp/wsx/db"' >/dev/null && grep -q '^HARBOR_WHISHPER_WORKSPACE="./services/whishper/data"$' profiles/default.env && grep -q '^data/' services/whishper/.gitignore
   tags: [whishper, spec, implemented]
-- label: whishper is registered in serviceMetadata.ts as a satellite/audio service with doc 2.3.96-Satellite-Whishper and docs/2.3.96-Satellite-Whishper.md exists with a screenshot
-  command: grep -q '2.3.96-Satellite-Whishper' app/src/serviceMetadata.ts && test -f docs/2.3.96-Satellite-Whishper.md && test -f docs/harbor-whishper.png
+- label: resolved config: WHISPER_MODELS equals HARBOR_WHISHPER_MODELS (default tiny,base,small), CPU_THREADS equals HARBOR_WHISHPER_CPU_THREADS (default 4), WHISPER_MODELS_DIR=/app/models and UPLOAD_DIR=/app/uploads, and overrides HARBOR_WHISHPER_MODELS=large-v3 / HARBOR_WHISHPER_CPU_THREADS=9 propagate
+  id: 298
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper | jq -e --arg m "$(ev HARBOR_WHISHPER_MODELS)" --arg t "$(ev HARBOR_WHISHPER_CPU_THREADS)" '.services.whishper.environment | .WHISPER_MODELS==$m and .CPU_THREADS==$t and .WHISPER_MODELS_DIR=="/app/models" and .UPLOAD_DIR=="/app/uploads"' >/dev/null && HARBOR_WHISHPER_MODELS=large-v3 HARBOR_WHISHPER_CPU_THREADS=9 C whishper | jq -e '.services.whishper.environment | .WHISPER_MODELS=="large-v3" and .CPU_THREADS=="9"' >/dev/null && grep -q '^HARBOR_WHISHPER_MODELS="tiny,base,small"$' profiles/default.env && grep -q '^HARBOR_WHISHPER_CPU_THREADS=4$' profiles/default.env
   tags: [whishper, spec, implemented]
-- label: whishper's entrypoint chowns /workspace, /workspace/uploads and /workspace/models to HARBOR_USER_ID:HARBOR_GROUP_ID after mkdir -p on every start, so a force-recreate or restart without whishper-init (e.g. after wiping models/) never leaves a root-owned directory the host-uid worker cannot write to
-  command: grep -q "chown \"\$uid:\$gid\" /workspace$" services/whishper/entrypoint.sh && grep -q "chown \"\$uid:\$gid\" \"/workspace/\$d\"" services/whishper/entrypoint.sh
+- label: resolved config with the nvidia cross-file: whishper's image becomes <HARBOR_WHISHPER_IMAGE>:<HARBOR_WHISHPER_VERSION>-gpu, PUBLIC_WHISHPER_PROFILE=gpu (cpu without the cross-file) and deploy.resources.reservations.devices reserves driver nvidia, capabilities [gpu], count all (-1 in resolved config)
+  id: sgz
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d '\"'; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C whishper nvidia | jq -e --arg i "$(ev HARBOR_WHISHPER_IMAGE):$(ev HARBOR_WHISHPER_VERSION)-gpu" '.services.whishper | .image==$i and .environment.PUBLIC_WHISHPER_PROFILE=="gpu" and (.deploy.resources.reservations.devices|length==1) and (.deploy.resources.reservations.devices[0] | .driver=="nvidia" and .capabilities==["gpu"] and .count==-1)' >/dev/null && C whishper | jq -e '.services.whishper.environment.PUBLIC_WHISHPER_PROFILE=="cpu" and (.services.whishper|has("deploy")|not)' >/dev/null
   tags: [whishper, spec, implemented]
-- label: whishper's entrypoint rewrites the transcription and backend supervisord programs to stderr_logfile=/dev/stderr (maxbytes 0), so model downloads and worker crash-loops appear in docker logs harbor.whishper instead of only in data/logs/*.err.log
-  command: grep -q "stderr_logfile=/dev/stderr" services/whishper/entrypoint.sh && grep -q "stderr_logfile_maxbytes=0" services/whishper/entrypoint.sh
+- label: whishper is registered in serviceMetadata.ts with tags Satellite and Audio, projectUrl github.com/pluja/whishper, a logo and wikiUrl for 2.3.96-Satellite-Whishper, and docs/2.3.96-Satellite-Whishper.md exists with a screenshot
+  id: xo0
+  command: awk '/^    whishper: \{/,/^    \},/' app/src/serviceMetadata.ts > /tmp/wm.$$; grep -q 'HST.satellite' /tmp/wm.$$ && grep -q 'HST.audio' /tmp/wm.$$ && grep -q 'github.com/pluja/whishper' /tmp/wm.$$ && grep -q 'logo:' /tmp/wm.$$ && grep -q '2.3.96-Satellite-Whishper' /tmp/wm.$$; r=$?; rm -f /tmp/wm.$$; [ $r = 0 ] && test -f docs/2.3.96-Satellite-Whishper.md && test -f docs/harbor-whishper.png
   tags: [whishper, spec, implemented]
-- verified: with services/whishper/data/models moved aside and whishper force-recreated with --no-deps (no init sidecar), models/ and the three faster-whisper-* dirs are created host-owned, the download log shows on docker logs, the container is healthy within ~30s, and a subsequent browser upload reaches status 2 with find services/whishper/data -path '*/db' -prune -o ! -user $USER -print empty @whishper @spec @manual @implemented
+- label: whishper's entrypoint, executed under stubs, chowns exactly /workspace, /workspace/uploads, /workspace/models and /app/transcription to HARBOR_USER_ID:HARBOR_GROUP_ID (4 chowns, after mkdir -p) on every start, so a force-recreate or restart without whishper-init (e.g. after wiping models/) never leaves a root-owned directory the host-uid worker cannot write to
+  id: gat
+  command: services/whishper/check-entrypoint.sh chown
+  tags: [whishper, spec, implemented]
+- label: whishper's entrypoint supervisord rewrite, executed under stubs against the image's supervisord.conf, sets stderr_logfile=/dev/stderr plus stderr_logfile_maxbytes=0 on exactly the transcription and backend programs (frontend and nginx keep their .err.log files), so model downloads and worker crash-loops appear in docker logs harbor.whishper instead of only in data/logs/*.err.log
+  id: hng
+  command: services/whishper/check-entrypoint.sh supervisord
+  tags: [whishper, spec, implemented]
+- label: verified: with services/whishper/data/models moved aside and whishper force-recreated with --no-deps (no init sidecar), models/ and the three faster-whisper-* dirs are created host-owned, the download log shows on docker logs, the container is healthy within ~30s, and a subsequent browser upload reaches status 2 with find services/whishper/data -path '*/db' -prune -o ! -user $USER -print empty
+  id: cnw
+  tags: [whishper, spec, implemented, manual]
 - label: verified: GET /api/translate/<id>/es twice returns 200 then 500 and leaves the row at status 3 with no buttons after a page reload; DELETE /api/transcriptions/<id> returns 200 and removes it, which is what the doc's Translate bullet prescribes as the only recovery
+  id: cq9
   command: grep -q "curl -X DELETE http://localhost:35060/api/transcriptions/<id>" docs/2.3.96-Satellite-Whishper.md
   tags: [whishper, spec, manual, implemented]
+- label: the whishper doc carries, in order, the headings Starting, Usage, Configuration, Environment Variables, Volumes, Cross-service integrations, Troubleshooting, Check Logs, a status -1 entry, a Translate/language-list entry, a LAN/traefik empty-list entry, Reset the database and Links, and its Usage block shows the POST /api/transcriptions, poll and /api/translate curl workflow
+  id: d4p
+  command: grep -E '^#{3,5} ' docs/2.3.96-Satellite-Whishper.md | tr -d '#' | sed 's/^ *//' | tr '\n' '|' | grep -q 'Starting|Usage|Configuration|Environment Variables|Volumes|Cross-service integrations|Troubleshooting|Check Logs|Transcription stays pending or fails with status -1|Translate button does nothing / language list empty|UI loads but the transcription list is empty on a LAN or traefik client|Poor accuracy|Reset the database|Links|' && grep -q '^curl -F file=@hello.wav -F language=en -F modelSize=tiny -F device=cpu' docs/2.3.96-Satellite-Whishper.md && grep -q '^curl http://localhost:35060/api/translate/<id>/es' docs/2.3.96-Satellite-Whishper.md
+  tags: [whishper, spec, implemented]
 
 # app
 - label: Harbor App blocks main UI behind a setup gate until setup detail status is ready
@@ -1841,8 +1901,8 @@
 # services > tei
 
 # services > linkwarden
-- label: linkwarden NEXTAUTH_URL derives from HARBOR_LINKWARDEN_PUBLIC_URL (default http://localhost:HOST_PORT) and the traefik cross-file redefines it to https://linkwarden.HARBOR_TRAEFIK_DOMAIN so a login through traefik stays on the traefik hostname; the doc covers the override
-  command: grep -q "NEXTAUTH_URL=\${HARBOR_LINKWARDEN_PUBLIC_URL:-http://localhost:\${HARBOR_LINKWARDEN_HOST_PORT}}/api/v1/auth" services/compose.linkwarden.yml && grep -q "NEXTAUTH_URL=\${HARBOR_LINKWARDEN_PUBLIC_URL:-https://linkwarden.\${HARBOR_TRAEFIK_DOMAIN}}/api/v1/auth" services/compose.x.traefik.linkwarden.yml && grep -q "^HARBOR_LINKWARDEN_PUBLIC_URL=" profiles/default.env && grep -q "linkwarden.public_url" docs/2.3.97-Satellite-Linkwarden.md
+- label: linkwarden NEXTAUTH_URL derives from HARBOR_LINKWARDEN_PUBLIC_URL (default http://localhost:HOST_PORT); the hand-maintained compose.x.linkwarden.traefik.yml (not the seeder-generated compose.x.traefik.linkwarden.yml) redefines it to https://linkwarden.HARBOR_TRAEFIK_DOMAIN so a login through traefik stays on the traefik hostname; the doc covers the override
+  command: grep -q "NEXTAUTH_URL=\${HARBOR_LINKWARDEN_PUBLIC_URL:-http://localhost:\${HARBOR_LINKWARDEN_HOST_PORT}}/api/v1/auth" services/compose.linkwarden.yml && grep -q "NEXTAUTH_URL=\${HARBOR_LINKWARDEN_PUBLIC_URL:-https://linkwarden.\${HARBOR_TRAEFIK_DOMAIN}}/api/v1/auth" services/compose.x.linkwarden.traefik.yml && ! grep -q NEXTAUTH_URL services/compose.x.traefik.linkwarden.yml && $(./harbor.sh cmd --no-defaults linkwarden traefik) config --format json | jq -e '.services.linkwarden.environment.NEXTAUTH_URL|test("^https://linkwarden\\..*/api/v1/auth$")' >/dev/null && grep -q "^HARBOR_LINKWARDEN_PUBLIC_URL=" profiles/default.env && grep -q "linkwarden.public_url" docs/2.3.97-Satellite-Linkwarden.md
   tags: [linkwarden, spec, implemented]
 - label: in the linkwarden image the worker picks the OpenAI-compatible backend (OPENAI_API_KEY and OPENAI_MODEL) before the ollama pair in autoTagLink.ts, which backs the doc's precedence claim
   command: docker run --rm --entrypoint sh ${HARBOR_LINKWARDEN_IMAGE:-ghcr.io/linkwarden/linkwarden}:latest -c 'f=/data/apps/worker/lib/autoTagLink.ts; o=$(grep -n "process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL" $f | head -1 | cut -d: -f1); l=$(grep -n "NEXT_PUBLIC_OLLAMA_ENDPOINT_URL && process.env.OLLAMA_MODEL" $f | head -1 | cut -d: -f1); [ -n "$o" ] && [ -n "$l" ] && [ "$o" -lt "$l" ]'
