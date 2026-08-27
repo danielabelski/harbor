@@ -712,52 +712,70 @@
 
 ## tei
 - label: tei is a backend service at services/compose.tei.yml serving HuggingFace text-embeddings-inference on host port 35030 (container port 80)
-  command: grep -q 'HARBOR_TEI_HOST_PORT}:80' services/compose.tei.yml && grep -q 'HARBOR_TEI_HOST_PORT=35030' profiles/default.env
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C tei | jq -e --arg p "$(ev HARBOR_TEI_HOST_PORT)" '.services.tei | (.image|startswith("ghcr.io/huggingface/text-embeddings-inference:")) and (.ports|length==1) and .ports[0].target==80 and .ports[0].published==$p and (.command|index("--port") as $i|.[$i+1]=="80")' >/dev/null && grep -q "^HARBOR_TEI_HOST_PORT=35030$" profiles/default.env
   tags: [tei, spec, implemented]
 - label: tei model is selected via HARBOR_TEI_MODEL (passed as --model-id) with default BAAI/bge-small-en-v1.5
-  command: grep -q 'HARBOR_TEI_MODEL="BAAI/bge-small-en-v1.5"' profiles/default.env && grep -q 'HARBOR_TEI_MODEL' services/compose.tei.yml
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; HARBOR_TEI_MODEL=probe-model C tei | jq -e '.services.tei.command | index("--model-id") as $i | $i!=null and .[$i+1]=="probe-model"' >/dev/null && grep -q '^HARBOR_TEI_MODEL="BAAI/bge-small-en-v1.5"$' profiles/default.env
+  tags: [tei, spec, implemented]
+- label: tei passes HARBOR_TEI_EXTRA_ARGS (default empty) verbatim to text-embeddings-router and HARBOR_HF_TOKEN into the container as HF_TOKEN for gated models
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; HARBOR_TEI_EXTRA_ARGS="--probe-flag probe-val" HARBOR_HF_TOKEN=probe-tok C tei | jq -e '.services.tei | (.command|index("--probe-flag") as $i|$i!=null and .[$i+1]=="probe-val") and .environment.HF_TOKEN=="probe-tok"' >/dev/null && grep -q '^HARBOR_TEI_EXTRA_ARGS=""$' profiles/default.env
   tags: [tei, spec, implemented]
 - label: tei mounts the host HuggingFace hub cache (HARBOR_HF_CACHE/hub) at /data so models are downloaded once in the standard cache layout
-  command: grep -q 'HARBOR_HF_CACHE:-./services/tei/.hf-cache}/hub:/data' services/compose.tei.yml
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; HARBOR_HF_CACHE=/probe-cache C tei | jq -e '.services.tei.volumes | length==1 and .[0].type=="bind" and .[0].source=="/probe-cache/hub" and .[0].target=="/data"' >/dev/null && grep -q 'HARBOR_HF_CACHE:-./services/tei/.hf-cache}/hub:/data' services/compose.tei.yml
   tags: [tei, spec, implemented]
-- label: tei defaults to the CPU image tag; compose.x.tei.nvidia.yml swaps to the CUDA tag (HARBOR_TEI_VERSION_CUDA) and reserves all nvidia GPUs
-  command: grep -q 'HARBOR_TEI_VERSION_CUDA' services/compose.x.tei.nvidia.yml && grep -q 'driver: nvidia' services/compose.x.tei.nvidia.yml
+- label: tei defaults to the CPU image tag (HARBOR_TEI_VERSION=cpu-latest); compose.x.tei.nvidia.yml swaps to the CUDA tag (HARBOR_TEI_VERSION_CUDA, default latest) and reserves all nvidia GPUs
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; HARBOR_TEI_VERSION=probe-cpu HARBOR_TEI_VERSION_CUDA=probe-cuda C tei | jq -e '.services.tei.image=="ghcr.io/huggingface/text-embeddings-inference:probe-cpu"' >/dev/null && HARBOR_TEI_VERSION=probe-cpu HARBOR_TEI_VERSION_CUDA=probe-cuda C tei nvidia | jq -e '.services.tei | .image=="ghcr.io/huggingface/text-embeddings-inference:probe-cuda" and (.deploy.resources.reservations.devices | length==1 and .[0].driver=="nvidia" and .[0].count==-1 and (.[0].capabilities|index("gpu")!=null))' >/dev/null && grep -q '^HARBOR_TEI_VERSION="cpu-latest"$' profiles/default.env && grep -q '^HARBOR_TEI_VERSION_CUDA="latest"$' profiles/default.env
   tags: [tei, spec, implemented]
 - label: tei exposes POST /embed and OpenAI-compatible POST /v1/embeddings returning float vectors
   command: curl -sf localhost:35030/v1/embeddings -H 'Content-Type: application/json' -d '{"input":"hello"}' | grep -q '"embedding"'
   tags: [tei, spec, implemented]
-- label: tei is documented at docs/2.2.26-Backend-Text-Embeddings-Inference.md and registered in serviceMetadata.ts as a backend
-  command: test -f docs/2.2.26-Backend-Text-Embeddings-Inference.md && grep -q '^    tei: {' app/src/serviceMetadata.ts
+- label: tei is documented at docs/2.2.26-Backend-Text-Embeddings-Inference.md and registered in serviceMetadata.ts as a backend with HST.backend and HST.api tags, the upstream projectUrl and the doc wikiUrl
+  command: test -f docs/2.2.26-Backend-Text-Embeddings-Inference.md && grep -A6 '^    tei: {' app/src/serviceMetadata.ts | grep -q "tags: \[HST.backend, HST.api\]" && grep -A6 '^    tei: {' app/src/serviceMetadata.ts | grep -q "projectUrl: 'https://github.com/huggingface/text-embeddings-inference'" && grep -A6 '^    tei: {' app/src/serviceMetadata.ts | grep -q '2.2.26-Backend-Text-Embeddings-Inference`' && grep -A6 '^    tei: {' app/src/serviceMetadata.ts | grep -q "logo: 'https://"
   tags: [tei, spec, implemented]
-- label: tei healthcheck start_period is 30m so a first-run model download does not flip the container to unhealthy
-  command: grep -q "start_period: 30m" services/compose.tei.yml
+- label: tei healthcheck probes GET /health on container port 80 every 5s and its start_period is 30m so a first-run model download does not flip the container to unhealthy
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C tei | jq -e '.services.tei.healthcheck | .test[0]=="CMD-SHELL" and (.test|join(" ")|test("/dev/tcp/127\\.0\\.0\\.1/80 ") and test("GET /health HTTP") and test("200 OK")) and .start_period=="30m0s" and .interval=="5s" and .retries>=10' >/dev/null
   tags: [tei, spec, implemented]
 - label: tei ships a screenshot of its Swagger UI at docs/harbor-tei.png embedded in its doc
   command: test -f docs/harbor-tei.png && grep -q 'harbor-tei.png' docs/2.2.26-Backend-Text-Embeddings-Inference.md
   tags: [tei, spec, implemented]
-- label: compose.x.webui.tei.yml renders services/webui/configs/config.tei.json (rag.embedding_engine=openai, rag.openai.api_base_url=http://tei:80/v1, model HARBOR_TEI_MODEL) into Open WebUI's config on every start, so TEI becomes the embedder on existing installs, not only first boot
-  command: grep -q 'config.tei.json' services/compose.x.webui.tei.yml && grep -q '"embedding_engine": "openai"' services/webui/configs/config.tei.json && grep -q 'http://tei:80/v1' services/webui/configs/config.tei.json
+- label: compose.x.webui.tei.yml makes webui depend on healthy tei and sets RAG_EMBEDDING_ENGINE=openai, RAG_OPENAI_API_BASE_URL=http://tei:80/v1, RAG_OPENAI_API_KEY and RAG_EMBEDDING_MODEL=HARBOR_TEI_MODEL
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; HARBOR_TEI_MODEL=probe-model C tei webui | jq -e '.services.webui | .depends_on.tei.condition=="service_healthy" and (.environment | .RAG_EMBEDDING_ENGINE=="openai" and .RAG_OPENAI_API_BASE_URL=="http://tei:80/v1" and .RAG_EMBEDDING_MODEL=="probe-model" and (.RAG_OPENAI_API_KEY|length>0))' >/dev/null
   tags: [tei, spec, implemented]
-- label: compose.x.librechat.tei.yml sets librechat-rag to EMBEDDINGS_PROVIDER=openai with RAG_OPENAI_BASEURL=http://tei:80/v1 and EMBEDDINGS_MODEL=HARBOR_TEI_MODEL (the rag-api lite image lacks langchain_huggingface, so the native huggingfacetei provider crashes at import)
-  command: grep -q 'EMBEDDINGS_PROVIDER=openai' services/compose.x.librechat.tei.yml && grep -q 'RAG_OPENAI_BASEURL=http://tei:80/v1' services/compose.x.librechat.tei.yml && grep -q 'EMBEDDINGS_MODEL=' services/compose.x.librechat.tei.yml && grep -q 'HARBOR_TEI_MODEL' services/compose.x.librechat.tei.yml && test "$(grep -c 'EMBEDDINGS_PROVIDER=huggingfacetei' services/compose.x.librechat.tei.yml)" = 0
+- label: compose.x.webui.tei.yml mounts services/webui/configs/config.tei.json at /app/configs/config.tei.json, which webui renders and upserts into its persisted config on every start, so TEI becomes the embedder on existing installs, not only first boot
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C tei webui | jq -e '[.services.webui.volumes[]|select(.type=="bind" and .target=="/app/configs/config.tei.json" and (.source|endswith("/services/webui/configs/config.tei.json")))]|length==1' >/dev/null && grep -Eq '^\s*- \./services/webui/configs/config\.tei\.json:/app/configs/config\.tei\.json' services/compose.x.webui.tei.yml
   tags: [tei, spec, implemented]
-- label: compose.x.anythingllm.tei.yml sets AnythingLLM EMBEDDING_ENGINE=generic-openai against http://tei:80/v1 with HARBOR_TEI_MODEL as model
-  command: grep -q 'EMBEDDING_ENGINE=generic-openai' services/compose.x.anythingllm.tei.yml && grep -q 'EMBEDDING_MODEL_PREF=${HARBOR_TEI_MODEL}' services/compose.x.anythingllm.tei.yml
+- label: services/webui/configs/config.tei.json is valid JSON setting rag.embedding_engine=openai, rag.embedding_model=${HARBOR_TEI_MODEL}, rag.openai.api_base_url=http://tei:80/v1 and a non-empty rag.openai.api_key, and nothing else
+  command: jq -e '(keys==["rag"]) and (.rag|keys==["embedding_engine","embedding_model","openai"]) and .rag.embedding_engine=="openai" and .rag.embedding_model=="${HARBOR_TEI_MODEL}" and (.rag.openai|keys==["api_base_url","api_key"]) and .rag.openai.api_base_url=="http://tei:80/v1" and (.rag.openai.api_key|length>0)' services/webui/configs/config.tei.json >/dev/null
   tags: [tei, spec, implemented]
-- label: tei doc follows the Windmill format: Key Features, #### Starting/Configuration/Integration with Harbor/Troubleshooting/Links
-  command: grep -q '^\*\*Key Features:\*\*' docs/2.2.26-Backend-Text-Embeddings-Inference.md && grep -q '^#### Integration with Harbor' docs/2.2.26-Backend-Text-Embeddings-Inference.md && grep -q '^#### Troubleshooting' docs/2.2.26-Backend-Text-Embeddings-Inference.md
+- label: compose.x.librechat.tei.yml makes librechat-rag depend on healthy tei and sets EMBEDDINGS_PROVIDER=openai with RAG_OPENAI_BASEURL=http://tei:80/v1, RAG_OPENAI_API_KEY and EMBEDDINGS_MODEL=HARBOR_TEI_MODEL (the rag-api lite image lacks langchain_huggingface, so the native huggingfacetei provider crashes at import)
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; HARBOR_TEI_MODEL=probe-model C tei librechat | jq -e '.services["librechat-rag"] | .depends_on.tei.condition=="service_healthy" and (.environment | .EMBEDDINGS_PROVIDER=="openai" and .RAG_OPENAI_BASEURL=="http://tei:80/v1" and .EMBEDDINGS_MODEL=="probe-model" and (.RAG_OPENAI_API_KEY|length>0))' >/dev/null && ! grep -q 'huggingfacetei' <(grep -v '^\s*#' services/compose.x.librechat.tei.yml)
+  tags: [tei, spec, implemented]
+- label: compose.x.anythingllm.tei.yml makes anythingllm depend on healthy tei and sets EMBEDDING_ENGINE=generic-openai, EMBEDDING_BASE_PATH=http://tei:80/v1, EMBEDDING_MODEL_PREF=HARBOR_TEI_MODEL, EMBEDDING_MODEL_MAX_CHUNK_LENGTH=512 and GENERIC_OPEN_AI_EMBEDDING_API_KEY
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; HARBOR_TEI_MODEL=probe-model C tei anythingllm | jq -e '.services.anythingllm | .depends_on.tei.condition=="service_healthy" and (.environment | .EMBEDDING_ENGINE=="generic-openai" and .EMBEDDING_BASE_PATH=="http://tei:80/v1" and .EMBEDDING_MODEL_PREF=="probe-model" and .EMBEDDING_MODEL_MAX_CHUNK_LENGTH=="512" and (.GENERIC_OPEN_AI_EMBEDDING_API_KEY|length>0))' >/dev/null
+  tags: [tei, spec, implemented]
+- label: compose.x.lightrag.tei.yml makes lightrag depend on healthy tei and sets EMBEDDING_BINDING=openai, EMBEDDING_BINDING_HOST=http://tei:80/v1, EMBEDDING_BINDING_API_KEY, EMBEDDING_MODEL=HARBOR_TEI_MODEL and EMBEDDING_DIM=HARBOR_LIGHTRAG_TEI_EMBEDDING_DIM (default 384)
+  command: C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; HARBOR_TEI_MODEL=probe-model HARBOR_LIGHTRAG_TEI_EMBEDDING_DIM=4321 C tei lightrag | jq -e '.services.lightrag | .depends_on.tei.condition=="service_healthy" and (.environment | .EMBEDDING_BINDING=="openai" and .EMBEDDING_BINDING_HOST=="http://tei:80/v1" and .EMBEDDING_MODEL=="probe-model" and .EMBEDDING_DIM=="4321" and (.EMBEDDING_BINDING_API_KEY|length>0))' >/dev/null && grep -q "^HARBOR_LIGHTRAG_TEI_EMBEDDING_DIM=384$" profiles/default.env
+  tags: [tei, spec, implemented]
+- label: compose.x.traefik.tei.yml routes Host(tei.HARBOR_TRAEFIK_DOMAIN) to container port 80 over the traefik-public network
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; C(){ $(./harbor.sh cmd --no-defaults "$@") config --format json; }; C tei traefik | jq -e --arg d "$(ev HARBOR_TRAEFIK_DOMAIN)" '.services.tei | (.labels | .["traefik.enable"]=="true" and .["traefik.http.routers.tei.rule"]=="Host(`tei."+$d+"`)" and .["traefik.http.services.tei.loadbalancer.server.port"]=="80") and (.networks|has("traefik-public"))' >/dev/null
+  tags: [tei, spec, implemented]
+- label: tei doc follows the Windmill format in order: **Key Features** list, then #### Starting, #### Configuration, ##### GPU, #### Integration with Harbor, #### Troubleshooting, #### Links
+  command: d=docs/2.2.26-Backend-Text-Embeddings-Inference.md; prev=0; for h in "#### Starting" "#### Configuration" "##### Environment Variables" "##### GPU" "#### Integration with Harbor" "#### Troubleshooting" "#### Links"; do n=$(grep -n -m1 "^$h$" $d | cut -d: -f1); [ -n "$n" ] && [ "$n" -gt "$prev" ] || { echo "missing or misordered: $h"; exit 1; }; prev=$n; done; [ "$(grep -A6 "^\*\*Key Features" $d | grep -c "^- ")" -ge 3 ] && grep -q "harbor up tei nvidia" $d && grep -q "^# Start TEI" $d
   tags: [tei, spec, implemented]
 - label: tei /info reports the loaded model id matching HARBOR_TEI_MODEL
   command: curl -sf localhost:35030/info | grep -q "\"model_id\":\"$(./harbor.sh config get tei.model)\""
+  tags: [tei, spec, implemented]
+- label: services/tei/check-webui-embed.sh asserts GET /api/v1/retrieval/embedding reports engine openai at http://tei:80/v1, uploads via POST /api/v1/files/, and only passes when TEI's log gains an openai_embed line
+  command: s=services/tei/check-webui-embed.sh; test -x $s && grep -q "/api/v1/retrieval/embedding" $s && grep -q '"openai"' $s && grep -q "http://tei:80/v1" $s && grep -q "/api/v1/files/" $s && grep -q "grep -c openai_embed" $s && grep -Eq '\[ "\$after" -gt "\$before" \].*exit 0' $s && grep -Eq "^echo .*; exit 1$" $s && ! grep -Eq "^\s*exit 0" $s
+  tags: [tei, spec, implemented]
+- label: services/tei/check-librechat-embed.sh asserts librechat-rag runs with RAG_OPENAI_BASEURL=http://tei:80/v1, uploads through POST /api/files with endpoint=agents and tool_resource=file_search, and only passes when TEI's log gains an openai_embed line
+  command: s=services/tei/check-librechat-embed.sh; test -x $s && grep -q "RAG_OPENAI_BASEURL=http://tei:80/v1" $s && grep -q "/api/files" $s && grep -q '"endpoint", "agents"' $s && grep -q '"tool_resource", "file_search"' $s && grep -q "grep -c openai_embed" $s && grep -Eq '\[ "\$after" -gt "\$before" \].*exit 0' $s && grep -Eq "^echo .*; exit 1$" $s && ! grep -Eq "^\s*exit 0" $s
   tags: [tei, spec, implemented]
 - label: [runtime: webui+tei up] with harbor up webui tei, GET /api/v1/retrieval/embedding reports engine openai at http://tei:80/v1 and uploading a file to /api/v1/files/ produces an openai_embed line in TEI's log (services/tei/check-webui-embed.sh)
   command: ./services/tei/check-webui-embed.sh
   tags: [tei, spec, implemented]
 - label: [runtime: librechat+tei up] with harbor up librechat tei, librechat-rag stays running with RAG_OPENAI_BASEURL=http://tei:80/v1, and uploading a file to an Agents-endpoint agent as a File Search resource (POST /api/files with endpoint=agents and tool_resource=file_search, the request LibreChat's agent builder sends; plain-chat attachments never embed) is ingested by rag-api and produces an openai_embed line in TEI's log (services/tei/check-librechat-embed.sh)
   command: ./services/tei/check-librechat-embed.sh
-  tags: [tei, spec, implemented]
-- label: all four tei cross-files (webui, librechat, anythingllm, lightrag) depend on tei with condition: service_healthy so dependents start only after the model is loaded
-  command: for f in webui librechat anythingllm lightrag; do grep -q 'condition: service_healthy' services/compose.x.$f.tei.yml || exit 1; done
   tags: [tei, spec, implemented]
 
 ## lightrag
