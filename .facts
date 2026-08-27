@@ -779,11 +779,11 @@
 - label: lightrag service compose file at services/compose.lightrag.yml exposes port 9621 on HARBOR_LIGHTRAG_HOST_PORT and persists /app/data under HARBOR_LIGHTRAG_WORKSPACE
   command: grep -q 'HARBOR_LIGHTRAG_HOST_PORT}:9621' services/compose.lightrag.yml && grep -q 'HARBOR_LIGHTRAG_WORKSPACE' services/compose.lightrag.yml
   tags: [lightrag, implemented]
-- label: lightrag ollama cross-file sets LLM_BINDING=ollama and EMBEDDING_BINDING=ollama against HARBOR_OLLAMA_INTERNAL_URL
-  command: grep -q 'LLM_BINDING=ollama' services/compose.x.lightrag.ollama.yml && grep -q 'EMBEDDING_BINDING=ollama' services/compose.x.lightrag.ollama.yml && grep -q 'HARBOR_OLLAMA_INTERNAL_URL' services/compose.x.lightrag.ollama.yml
+- label: lightrag ollama cross-file sets LLM_BINDING=ollama and EMBEDDING_BINDING=ollama against HARBOR_OLLAMA_INTERNAL_URL and depends on ollama with condition: service_healthy
+  command: grep -q 'LLM_BINDING=ollama' services/compose.x.lightrag.ollama.yml && grep -q 'EMBEDDING_BINDING=ollama' services/compose.x.lightrag.ollama.yml && grep -q 'HARBOR_OLLAMA_INTERNAL_URL' services/compose.x.lightrag.ollama.yml && grep -q 'condition: service_healthy' services/compose.x.lightrag.ollama.yml
   tags: [lightrag, implemented]
-- label: lightrag llamacpp cross-file uses the openai binding against http://llamacpp:8080/v1 for the LLM
-  command: grep -q 'LLM_BINDING=openai' services/compose.x.lightrag.llamacpp.yml && grep -q 'http://llamacpp:8080/v1' services/compose.x.lightrag.llamacpp.yml
+- label: lightrag llamacpp cross-file uses the openai binding against http://llamacpp:8080/v1 for the LLM, depends on llamacpp with condition: service_healthy, and sends OPENAI_LLM_EXTRA_BODY chat_template_kwargs.enable_thinking=HARBOR_LIGHTRAG_LLAMACPP_THINKING (default false) so Qwen3-family models answer instead of reasoning past the per-call timeout
+  command: grep -q 'LLM_BINDING=openai' services/compose.x.lightrag.llamacpp.yml && grep -q 'http://llamacpp:8080/v1' services/compose.x.lightrag.llamacpp.yml && grep -q 'condition: service_healthy' services/compose.x.lightrag.llamacpp.yml && grep -q 'enable_thinking":${HARBOR_LIGHTRAG_LLAMACPP_THINKING}' services/compose.x.lightrag.llamacpp.yml && grep -q 'HARBOR_LIGHTRAG_LLAMACPP_THINKING=false' profiles/default.env
   tags: [lightrag, implemented]
 - label: lightrag tei cross-file points EMBEDDING_BINDING=openai at the tei container with EMBEDDING_MODEL=HARBOR_TEI_MODEL
   command: grep -q 'EMBEDDING_BINDING=openai' services/compose.x.lightrag.tei.yml && grep -q 'http://tei:80/v1' services/compose.x.lightrag.tei.yml && grep -q 'HARBOR_TEI_MODEL' services/compose.x.lightrag.tei.yml
@@ -794,12 +794,14 @@
 - label: lightrag is registered in serviceMetadata.ts as a satellite with the rag tag and documented in docs/2.3.93-Satellite-LightRAG.md
   command: grep -q 'lightrag: {' app/src/serviceMetadata.ts && test -f docs/2.3.93-Satellite-LightRAG.md && test -f docs/harbor-lightrag.png
   tags: [lightrag, implemented]
-- harbor up lightrag ollama ingests a document via POST /documents/text and answers a grounded query via POST /query (verified manually) @lightrag @implemented
+- label: [runtime: lightrag ollama up] harbor up lightrag ollama with shipped defaults ingests a document via POST /documents/text, GET /graphs returns at least one node afterwards, and POST /query mode=hybrid answers in grounded prose rather than [no-context] or the keyword JSON (services/lightrag/check-graph.sh)
+  command: ./services/lightrag/check-graph.sh
+  tags: [lightrag, implemented]
 - label: lightrag WORKING_DIR is keyed by embedder: /app/data/rag_storage/openai by default, overridden to rag_storage/ollama and rag_storage/tei by the respective cross-files, so switching embedders never causes an embedding dim mismatch
   command: grep -q 'WORKING_DIR=/app/data/rag_storage/openai' services/compose.lightrag.yml && grep -q 'WORKING_DIR=/app/data/rag_storage/ollama' services/compose.x.lightrag.ollama.yml && grep -q 'WORKING_DIR=/app/data/rag_storage/tei' services/compose.x.lightrag.tei.yml
   tags: [lightrag, spec, implemented]
 - label: lightrag and paperless-gpt llamacpp cross-files ship a non-empty default model (HARBOR_LIGHTRAG_LLAMACPP_MODEL / HARBOR_PAPERLESS_GPT_LLAMACPP_MODEL) because empty model names 400 against the llama.cpp router
-  command: grep -q 'HARBOR_LIGHTRAG_LLAMACPP_MODEL="LiquidAI' profiles/default.env && grep -q 'HARBOR_PAPERLESS_GPT_LLAMACPP_MODEL="LiquidAI' profiles/default.env
+  command: grep -qE "^HARBOR_LIGHTRAG_LLAMACPP_MODEL=\"[^\"]+\"" profiles/default.env && grep -q "HARBOR_PAPERLESS_GPT_LLAMACPP_MODEL=\"LiquidAI" profiles/default.env
   tags: [lightrag, paperless, spec, implemented]
 - label: compose.x.lightrag.llamacpp.ollama.yml (3-dot, applied after the 2-dot cross-files) keeps the LLM on llamacpp (openai binding at http://llamacpp:8080/v1, HARBOR_LIGHTRAG_LLAMACPP_MODEL) while the ollama cross-file supplies embeddings, so 'harbor up lightrag llamacpp ollama' generates with llama.cpp and embeds with Ollama
   command: ./harbor.sh eject --no-defaults lightrag llamacpp ollama | grep -q "LLM_BINDING_HOST: http://llamacpp:8080/v1" && ./harbor.sh eject --no-defaults lightrag llamacpp ollama | grep -q "EMBEDDING_BINDING: ollama"
@@ -1655,3 +1657,14 @@
 - label: hermes compose sets HERMES_UID/HERMES_GID to HARBOR_USER_ID/HARBOR_GROUP_ID so the s6 image remaps the hermes user and workspace files stay host-owned
   command: grep -q 'HERMES_UID=${HARBOR_USER_ID}' services/compose.hermes.yml && grep -q 'HERMES_GID=${HARBOR_GROUP_ID}' services/compose.hermes.yml
   tags: [hermes-provider, spec, implemented]
+
+# lightrag
+- label: lightrag runs entity extraction in JSON mode (ENTITY_EXTRACTION_USE_JSON from HARBOR_LIGHTRAG_EXTRACTION_JSON, default true) because the delimiter-based default yields 0 entities / 0 relations with the shipped local models, which left the Knowledge Graph empty and graph modes answering [no-context]
+  command: grep -q 'ENTITY_EXTRACTION_USE_JSON=${HARBOR_LIGHTRAG_EXTRACTION_JSON}' services/compose.lightrag.yml && grep -q '^HARBOR_LIGHTRAG_EXTRACTION_JSON=true' profiles/default.env
+  tags: [lightrag, spec, implemented]
+- label: lightrag ships RERANK_BY_DEFAULT=false (HARBOR_LIGHTRAG_RERANK_BY_DEFAULT) so queries no longer log 'Rerank is enabled but no rerank model is configured' while RERANK_BINDING is null
+  command: grep -q 'RERANK_BY_DEFAULT=${HARBOR_LIGHTRAG_RERANK_BY_DEFAULT}' services/compose.lightrag.yml && grep -q '^HARBOR_LIGHTRAG_RERANK_BY_DEFAULT=false' profiles/default.env
+  tags: [lightrag, spec, implemented]
+- label: lightrag ollama default model is qwen2.5:1.5b (qwen2.5:0.5b extracted entities but returned empty hybrid answers), and the doc names the Open WebUI model id as lightrag.lightrag:latest and describes HARBOR_LIGHTRAG_EXTRACTION_JSON, HARBOR_LIGHTRAG_RERANK_BY_DEFAULT and HARBOR_LIGHTRAG_LLAMACPP_THINKING
+  command: grep -q '^HARBOR_LIGHTRAG_OLLAMA_MODEL="qwen2.5:1.5b"' profiles/default.env && grep -q 'qwen2.5:1.5b' docs/2.3.93-Satellite-LightRAG.md && grep -q 'lightrag.lightrag:latest' docs/2.3.93-Satellite-LightRAG.md
+  tags: [lightrag, spec, implemented]

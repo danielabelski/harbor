@@ -1,7 +1,8 @@
 services:
   lightrag:
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     environment:
       - LLM_BINDING=ollama
       - LLM_BINDING_HOST=${HARBOR_OLLAMA_INTERNAL_URL}

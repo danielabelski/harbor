@@ -32,6 +32,12 @@ services:
       - EMBEDDING_MODEL=${HARBOR_LIGHTRAG_EMBEDDING_MODEL}
       - EMBEDDING_DIM=${HARBOR_LIGHTRAG_EMBEDDING_DIM}
       - EMBEDDING_SEND_DIM=false
+      # JSON structured extraction: delimiter-based extraction silently yields
+      # 0 entities with most local models (they answer in JSON anyway)
+      - ENTITY_EXTRACTION_USE_JSON=${HARBOR_LIGHTRAG_EXTRACTION_JSON}
+      # Rerank is off unless a rerank model is configured, otherwise every
+      # query logs "Rerank is enabled but no rerank model is configured"
+      - RERANK_BY_DEFAULT=${HARBOR_LIGHTRAG_RERANK_BY_DEFAULT}
       - RERANK_BINDING=${HARBOR_LIGHTRAG_RERANK_BINDING}
       - RERANK_BINDING_HOST=${HARBOR_LIGHTRAG_RERANK_URL}
       - RERANK_MODEL=${HARBOR_LIGHTRAG_RERANK_MODEL}
