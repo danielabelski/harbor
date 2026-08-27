@@ -1029,6 +1029,9 @@
 - label: the paperless-gpt doc documents OLLAMA_THINK=false being set by the ollama cross-file
   command: grep -q '`OLLAMA_THINK=false`' docs/2.3.95-Satellite-Paperless-GPT.md && grep -q 'OLLAMA_THINK=false' services/compose.x.paperless-gpt.ollama.yml
   tags: [paperless, spec, implemented]
+- label: the hand-maintained compose.x.paperless.traefik.yml (not the seeder-generated compose.x.traefik.paperless.yml) overrides PAPERLESS_URL to https://paperless.HARBOR_TRAEFIK_DOMAIN and adds HARBOR_PAPERLESS_URL to PAPERLESS_CSRF_TRUSTED_ORIGINS, so a login through the traefik hostname is not rejected by Django's origin check while http://localhost stays trusted; the doc covers the traefik hostname and the override
+  command: ! grep -q PAPERLESS_URL services/compose.x.traefik.paperless.yml && $(./harbor.sh cmd --no-defaults paperless) config --format json | jq -e '.services.paperless.environment | .PAPERLESS_URL == "http://localhost:35050" and (has("PAPERLESS_CSRF_TRUSTED_ORIGINS") | not)' >/dev/null && HARBOR_TRAEFIK_DOMAIN=probe.test $(./harbor.sh cmd --no-defaults paperless traefik) config --format json | jq -e '.services.paperless.environment | .PAPERLESS_URL == "https://paperless.probe.test" and .PAPERLESS_CSRF_TRUSTED_ORIGINS == "http://localhost:35050"' >/dev/null && grep -q 'https://paperless.<HARBOR_TRAEFIK_DOMAIN>' docs/2.3.94-Satellite-Paperless.md && grep -q 'compose.x.paperless.traefik.yml' docs/2.3.94-Satellite-Paperless.md
+  tags: [paperless, traefik, spec, implemented]
 
 ## whishper
 - label: whishper starts via services/whishper/entrypoint.sh which rewrites nginx's hardcoded translate:5000 upstream to TRANSLATION_ENDPOINT (default 127.0.0.1:5000) so the container serves the UI without libretranslate
