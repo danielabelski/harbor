@@ -1,6 +1,6 @@
 services:
   whishper:
-    image: ${HARBOR_WHISHPER_IMAGE}:latest-gpu
+    image: ${HARBOR_WHISHPER_IMAGE}:${HARBOR_WHISHPER_VERSION}-gpu
     environment:
       - PUBLIC_WHISHPER_PROFILE=gpu
     deploy:

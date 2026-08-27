@@ -922,6 +922,10 @@
 - label: compose.x.whishper.libretranslate.yml sets TRANSLATION_ENDPOINT=libretranslate:5000 and depends_on libretranslate, so /languages and /api/translate/<id>/<lang> work when both services run
   command: grep -q 'TRANSLATION_ENDPOINT=libretranslate:5000' services/compose.x.whishper.libretranslate.yml && grep -q '\- libretranslate' services/compose.x.whishper.libretranslate.yml
   tags: [whishper, spec, implemented]
+- label: PUBLIC_API_HOST comes from HARBOR_WHISHPER_PUBLIC_URL (default empty = same-origin), so the browser fetches /api relative to the page URL and the transcription list, upload and translate work from localhost, a LAN IP and the traefik route alike; the variable is documented in the whishper doc
+  command: grep -q 'PUBLIC_API_HOST=${HARBOR_WHISHPER_PUBLIC_URL}' services/compose.whishper.yml && grep -q '^HARBOR_WHISHPER_PUBLIC_URL=""' profiles/default.env && grep -q 'HARBOR_WHISHPER_PUBLIC_URL' docs/2.3.96-Satellite-Whishper.md && ! grep -q 'PUBLIC_API_HOST=http://localhost' services/compose.whishper.yml
+  tags: [whishper, spec, implemented]
+- end-user workflow via the browser on a non-localhost origin (https://whishper.<domain> through traefik, http://<lan-ip>:35060): the transcription list renders, an uploaded wav reaches status 2, and with libretranslate up the TRANSLATE modal stores an es translation, with every /api call going to the page origin @whishper @spec @implemented @manual
 - label: compose.x.traefik.whishper.yml routes whishper.<HARBOR_TRAEFIK_DOMAIN> to the container's port 80 on the traefik-public network
   command: grep -q 'loadbalancer.server.port=80' services/compose.x.traefik.whishper.yml && grep -q 'traefik-public' services/compose.x.traefik.whishper.yml
   tags: [whishper, spec, implemented]
@@ -941,8 +945,8 @@
 - label: whisper model list is configurable via HARBOR_WHISHPER_MODELS (WHISPER_MODELS env) and CPU threads via HARBOR_WHISHPER_CPU_THREADS
   command: grep -q 'WHISPER_MODELS=${HARBOR_WHISHPER_MODELS}' services/compose.whishper.yml && grep -q 'CPU_THREADS=${HARBOR_WHISHPER_CPU_THREADS}' services/compose.whishper.yml && grep -q 'HARBOR_WHISHPER_MODELS=' profiles/default.env
   tags: [whishper, spec, implemented]
-- label: compose.x.whishper.nvidia.yml switches to the latest-gpu image tag and reserves all nvidia GPUs
-  command: grep -q 'latest-gpu' services/compose.x.whishper.nvidia.yml && grep -q 'driver: nvidia' services/compose.x.whishper.nvidia.yml
+- label: compose.x.whishper.nvidia.yml switches to the ${HARBOR_WHISHPER_VERSION}-gpu image tag and reserves all nvidia GPUs
+  command: grep -q 'HARBOR_WHISHPER_VERSION}-gpu' services/compose.x.whishper.nvidia.yml && grep -q 'driver: nvidia' services/compose.x.whishper.nvidia.yml
   tags: [whishper, spec, implemented]
 - label: whishper is registered in serviceMetadata.ts as a satellite/audio service with doc 2.3.96-Satellite-Whishper and docs/2.3.96-Satellite-Whishper.md exists with a screenshot
   command: grep -q '2.3.96-Satellite-Whishper' app/src/serviceMetadata.ts && test -f docs/2.3.96-Satellite-Whishper.md && test -f docs/harbor-whishper.png
