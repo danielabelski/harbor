@@ -21,6 +21,8 @@ extract=${LIGHTRAG_OLLAMA_EXTRACT_MODEL:?}
 query=${LIGHTRAG_OLLAMA_QUERY_MODEL:?}
 extract_ctx=${LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX:-16384}
 query_ctx=${LIGHTRAG_OLLAMA_NUM_CTX:-32768}
+query_gpu=${LIGHTRAG_OLLAMA_QUERY_NUM_GPU:--1}
+embedding=${LIGHTRAG_OLLAMA_EMBEDDING_MODEL:-}
 
 # The image ships no curl/wget; python is what the server itself runs on
 post() {
@@ -34,14 +36,24 @@ if body.get("status") != "success":
 PY
 }
 
+# $3: extra parameters JSON (e.g. num_gpu for the query copy); num_gpu below 0
+# is left to Ollama's default so the copy stays on the GPU
 create() {
-  echo "Harbor: lightrag ollama init - creating $1 (num_ctx=$2)"
-  post /api/create "{\"model\":\"$1\",\"from\":\"${base}\",\"parameters\":{\"num_ctx\":$2},\"stream\":false}"
+  echo "Harbor: lightrag ollama init - creating $1 (num_ctx=$2${3:+, $3})"
+  post /api/create "{\"model\":\"$1\",\"from\":\"${base}\",\"parameters\":{\"num_ctx\":$2${3:+,$3}},\"stream\":false}"
 }
 
 echo "Harbor: lightrag ollama init - pulling ${base}"
 post /api/pull "{\"model\":\"${base}\",\"stream\":false}"
+if [ -n "${embedding}" ]; then
+  echo "Harbor: lightrag ollama init - pulling ${embedding}"
+  post /api/pull "{\"model\":\"${embedding}\",\"stream\":false}"
+fi
 create "${extract}" "${extract_ctx}"
-create "${query}" "${query_ctx}"
+if [ "${query_gpu}" -ge 0 ]; then
+  create "${query}" "${query_ctx}" "\"num_gpu\":${query_gpu}"
+else
+  create "${query}" "${query_ctx}"
+fi
 echo "Harbor: lightrag ollama init - done, starting LightRAG"
 exec /usr/local/bin/docker-entrypoint.sh python -m lightrag.api.lightrag_server

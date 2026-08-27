@@ -29,6 +29,8 @@ services:
       - LIGHTRAG_OLLAMA_QUERY_MODEL=lightrag/${HARBOR_LIGHTRAG_OLLAMA_MODEL}-query
       - LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX=${HARBOR_LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX}
       - LIGHTRAG_OLLAMA_NUM_CTX=${HARBOR_LIGHTRAG_OLLAMA_NUM_CTX}
+      - LIGHTRAG_OLLAMA_QUERY_NUM_GPU=${HARBOR_LIGHTRAG_OLLAMA_QUERY_NUM_GPU}
+      - LIGHTRAG_OLLAMA_EMBEDDING_MODEL=${HARBOR_LIGHTRAG_OLLAMA_EMBEDDING_MODEL}
       # Derived models created at container start from
       # HARBOR_LIGHTRAG_OLLAMA_MODEL, with num_ctx baked in because /v1 ignores
       # per-request context options. Extraction/keyword calls and query answers
@@ -39,6 +41,18 @@ services:
       - 'OPENAI_LLM_EXTRA_BODY={"reasoning_effort":"${HARBOR_LIGHTRAG_OLLAMA_REASONING_EFFORT}"}'
       - OPENAI_LLM_MAX_COMPLETION_TOKENS=${HARBOR_LIGHTRAG_OLLAMA_MAX_TOKENS}
       - LLM_TIMEOUT=${HARBOR_LIGHTRAG_OLLAMA_TIMEOUT}
+      # One extraction call at a time: Ollama runs one request per runner, so
+      # LightRAG's default fan-out (4 calls x 3 parallel inserts) only queues
+      # the calls of a multi-chunk file until they hit the 360 s worker timeout
+      - MAX_ASYNC=${HARBOR_LIGHTRAG_OLLAMA_MAX_ASYNC}
+      - MAX_PARALLEL_INSERT=1
+      # Answer prompt budget. LightRAG's defaults (TOP_K=40, CHUNK_TOP_K=20,
+      # MAX_TOTAL_TOKENS=30000) hand a 4B model a 25-60K-char prompt once the
+      # knowledge base holds more than a few notes, and it then answers from the
+      # wrong document; a few thousand tokens is what it can actually use
+      - TOP_K=${HARBOR_LIGHTRAG_OLLAMA_TOP_K}
+      - CHUNK_TOP_K=${HARBOR_LIGHTRAG_OLLAMA_CHUNK_TOP_K}
+      - MAX_TOTAL_TOKENS=${HARBOR_LIGHTRAG_OLLAMA_MAX_TOTAL_TOKENS}
       - EMBEDDING_BINDING=ollama
       - EMBEDDING_BINDING_HOST=${HARBOR_OLLAMA_INTERNAL_URL}
       - EMBEDDING_MODEL=${HARBOR_LIGHTRAG_OLLAMA_EMBEDDING_MODEL}

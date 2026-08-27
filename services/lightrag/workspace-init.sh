@@ -4,3 +4,5 @@
 # keeps everything under services/lightrag/data manageable without sudo.
 set -e
 chown -R "${TARGET_UID:-1000}:${TARGET_GID:-1000}" /workspace
+
+mkdir -p /workspace/inputs /workspace/prompts

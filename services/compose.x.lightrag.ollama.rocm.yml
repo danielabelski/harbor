@@ -1,0 +1,7 @@
+services:
+  lightrag:
+    environment:
+      # Harbor's ROCm Ollama build answers LightRAG's long prompts from the wrong
+      # document on the GPU while the same prompt on CPU answers correctly, so the
+      # query copy of the model runs on CPU here (extraction stays on the GPU)
+      - LIGHTRAG_OLLAMA_QUERY_NUM_GPU=${HARBOR_LIGHTRAG_OLLAMA_ROCM_QUERY_NUM_GPU}
