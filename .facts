@@ -779,9 +779,9 @@
 - label: lightrag service compose file at services/compose.lightrag.yml exposes port 9621 on HARBOR_LIGHTRAG_HOST_PORT and persists /app/data under HARBOR_LIGHTRAG_WORKSPACE
   command: grep -q 'HARBOR_LIGHTRAG_HOST_PORT}:9621' services/compose.lightrag.yml && grep -q 'HARBOR_LIGHTRAG_WORKSPACE' services/compose.lightrag.yml
   tags: [lightrag, implemented]
-- label: lightrag ollama cross-file sets LLM_BINDING=ollama and EMBEDDING_BINDING=ollama against HARBOR_OLLAMA_INTERNAL_URL and depends on ollama with condition: service_healthy
-  command: grep -q 'LLM_BINDING=ollama' services/compose.x.lightrag.ollama.yml && grep -q 'EMBEDDING_BINDING=ollama' services/compose.x.lightrag.ollama.yml && grep -q 'HARBOR_OLLAMA_INTERNAL_URL' services/compose.x.lightrag.ollama.yml && grep -q 'condition: service_healthy' services/compose.x.lightrag.ollama.yml
-  tags: [lightrag, implemented]
+- label: lightrag ollama cross-file runs the LLM through Ollama's OpenAI-compatible /v1 (LLM_BINDING=openai at HARBOR_OLLAMA_INTERNAL_URL/v1, OPENAI_LLM_EXTRA_BODY reasoning_effort=HARBOR_LIGHTRAG_OLLAMA_REASONING_EFFORT default none so Qwen3-style thinking is off), keeps embeddings on the native binding (EMBEDDING_BINDING=ollama), and depends on ollama with condition: service_healthy
+  command: grep -q 'LLM_BINDING=openai' services/compose.x.lightrag.ollama.yml && grep -q 'LLM_BINDING_HOST=${HARBOR_OLLAMA_INTERNAL_URL}/v1' services/compose.x.lightrag.ollama.yml && grep -q 'reasoning_effort' services/compose.x.lightrag.ollama.yml && grep -q 'EMBEDDING_BINDING=ollama' services/compose.x.lightrag.ollama.yml && grep -q 'condition: service_healthy' services/compose.x.lightrag.ollama.yml && grep -q '^HARBOR_LIGHTRAG_OLLAMA_REASONING_EFFORT="none"' profiles/default.env
+  tags: [lightrag, spec, implemented]
 - label: lightrag llamacpp cross-file uses the openai binding against http://llamacpp:8080/v1 for the LLM, depends on llamacpp with condition: service_healthy, and sends OPENAI_LLM_EXTRA_BODY chat_template_kwargs.enable_thinking=HARBOR_LIGHTRAG_LLAMACPP_THINKING (default false) so Qwen3-family models answer instead of reasoning past the per-call timeout
   command: grep -q 'LLM_BINDING=openai' services/compose.x.lightrag.llamacpp.yml && grep -q 'http://llamacpp:8080/v1' services/compose.x.lightrag.llamacpp.yml && grep -q 'condition: service_healthy' services/compose.x.lightrag.llamacpp.yml && grep -q 'enable_thinking":${HARBOR_LIGHTRAG_LLAMACPP_THINKING}' services/compose.x.lightrag.llamacpp.yml && grep -q 'HARBOR_LIGHTRAG_LLAMACPP_THINKING=false' profiles/default.env
   tags: [lightrag, implemented]
@@ -794,17 +794,20 @@
 - label: lightrag is registered in serviceMetadata.ts as a satellite with the rag tag and documented in docs/2.3.93-Satellite-LightRAG.md
   command: grep -q 'lightrag: {' app/src/serviceMetadata.ts && test -f docs/2.3.93-Satellite-LightRAG.md && test -f docs/harbor-lightrag.png
   tags: [lightrag, implemented]
-- label: [runtime: lightrag ollama up] harbor up lightrag ollama with shipped defaults ingests a document via POST /documents/text, GET /graphs returns at least one node afterwards, and POST /query mode=hybrid answers in grounded prose rather than [no-context] or the keyword JSON (services/lightrag/check-graph.sh)
-  command: ./services/lightrag/check-graph.sh
+- label: [runtime: lightrag ollama up] harbor up lightrag ollama with shipped defaults ingests a document via POST /documents/text, GET /graphs returns at least one node afterwards, and at least 4 of 5 different POST /query mode=hybrid questions answer in grounded prose rather than [no-context], keyword lists or extraction JSON (services/lightrag/check-graph.sh --stack ollama; the script refuses to run unless the lightrag container's LLM_BINDING_HOST is ollama). Observed on the shipped defaults: 5/5 consecutive runs passed, 22/25 answers grounded, 0 JSON
+  id: 2pr
+  command: ./services/lightrag/check-graph.sh --stack ollama
   tags: [lightrag, implemented]
 - label: lightrag llamacpp cross-file serializes LLM calls (MAX_ASYNC=HARBOR_LIGHTRAG_LLAMACPP_MAX_ASYNC default 1, MAX_PARALLEL_INSERT=1) and bounds each call (LLM_TIMEOUT=HARBOR_LIGHTRAG_LLAMACPP_TIMEOUT default 180, OPENAI_LLM_MAX_COMPLETION_TOKENS=HARBOR_LIGHTRAG_LLAMACPP_MAX_TOKENS default 4096) so extraction workers never queue into LightRAG's 480s worker timeout against a single-model llama-server
   command: grep -q 'MAX_ASYNC=${HARBOR_LIGHTRAG_LLAMACPP_MAX_ASYNC}' services/compose.x.lightrag.llamacpp.yml && grep -q 'MAX_PARALLEL_INSERT=1' services/compose.x.lightrag.llamacpp.yml && grep -q 'LLM_TIMEOUT=${HARBOR_LIGHTRAG_LLAMACPP_TIMEOUT}' services/compose.x.lightrag.llamacpp.yml && grep -q 'OPENAI_LLM_MAX_COMPLETION_TOKENS=${HARBOR_LIGHTRAG_LLAMACPP_MAX_TOKENS}' services/compose.x.lightrag.llamacpp.yml && grep -q '^HARBOR_LIGHTRAG_LLAMACPP_MAX_ASYNC=1' profiles/default.env && grep -q '^HARBOR_LIGHTRAG_LLAMACPP_TIMEOUT=180' profiles/default.env && grep -q '^HARBOR_LIGHTRAG_LLAMACPP_MAX_TOKENS=4096' profiles/default.env
   tags: [lightrag, spec, implemented]
-- label: [runtime: lightrag llamacpp tei up] harbor up lightrag llamacpp tei with shipped defaults ingests a paragraph via POST /documents/text within 5 minutes and GET /graphs returns at least one node afterwards (services/lightrag/check-graph.sh --ingest-only); graph-mode answers on this path are documented as experimental and are not asserted
-  command: ./services/lightrag/check-graph.sh --ingest-only
+- label: [runtime: lightrag llamacpp tei up] harbor up lightrag llamacpp tei with shipped defaults ingests a paragraph via POST /documents/text within 5 minutes and GET /graphs returns at least one node afterwards (services/lightrag/check-graph.sh --stack llamacpp --ingest-only; the script refuses to run unless the lightrag container's LLM_BINDING_HOST is llamacpp). Hybrid answers on this path are experimental and not asserted; observed 3/3 runs passed, 13/15 grounded, 2 extraction JSON
+  id: pj4
+  command: ./services/lightrag/check-graph.sh --stack llamacpp --ingest-only
   tags: [lightrag, spec, implemented]
-- label: the LightRAG doc names Ollama as the recommended LLM backend, marks both llamacpp rows of the Backends table experimental, and its troubleshooting entry for keyword-JSON answers states the llama.cpp limitation plainly (reproduces with cache_prompt=false, pinned slot and JSON mode off; ollama unaffected) instead of attributing it to a prompt cache
-  command: grep -q 'Ollama is the recommended LLM backend' docs/2.3.93-Satellite-LightRAG.md && [ "$(grep -c 'harbor up lightrag llamacpp .*(experimental)' docs/2.3.93-Satellite-LightRAG.md)" = 2 ] && grep -q 'Known limitation of the experimental llama.cpp path' docs/2.3.93-Satellite-LightRAG.md && ! grep -q 'corrupted prompt cache' docs/2.3.93-Satellite-LightRAG.md
+- label: the LightRAG doc names Ollama as the recommended LLM backend and the only one whose runtime check passes, marks both llamacpp rows of the Backends table experimental, and its troubleshooting entry for keyword/extraction JSON answers states what was observed (reproduces on ROCm builds of both llama-server and Ollama when an answer call follows a JSON-mode call on the same runner, not on CPU, not a prompt-cache or sampling artifact) together with the measured pass rates, instead of claiming Ollama is unaffected
+  id: myx
+  command: grep -q 'Ollama is the recommended LLM backend, and the only one Harbor' docs/2.3.93-Satellite-LightRAG.md && [ "$(grep -c 'harbor up lightrag llamacpp .*(experimental)' docs/2.3.93-Satellite-LightRAG.md)" = 2 ] && grep -q 'follows a JSON-mode call' docs/2.3.93-Satellite-LightRAG.md && ! grep -q 'ollama unaffected\|which is not affected' docs/2.3.93-Satellite-LightRAG.md && grep -q '5 of 5 consecutive' docs/2.3.93-Satellite-LightRAG.md
   tags: [lightrag, spec, implemented]
 - label: lightrag WORKING_DIR is keyed by embedder: /app/data/rag_storage/openai by default, overridden to rag_storage/ollama and rag_storage/tei by the respective cross-files, so switching embedders never causes an embedding dim mismatch
   command: grep -q 'WORKING_DIR=/app/data/rag_storage/openai' services/compose.lightrag.yml && grep -q 'WORKING_DIR=/app/data/rag_storage/ollama' services/compose.x.lightrag.ollama.yml && grep -q 'WORKING_DIR=/app/data/rag_storage/tei' services/compose.x.lightrag.tei.yml
@@ -823,6 +826,18 @@
   tags: [lightrag, spec, implemented]
 - label: lightrag metadata logo is the HKUDS GitHub avatar, and docs/2.3.93-Satellite-LightRAG.md follows the Windmill doc layout (#### Starting/Configuration/Integration with Harbor/Troubleshooting/Links) with a backend selection table and an Open WebUI section
   command: grep -q "logo: .https://github.com/HKUDS.png" app/src/serviceMetadata.ts && grep -q "^#### Integration with Harbor" docs/2.3.93-Satellite-LightRAG.md && grep -q "harbor up lightrag ollama webui" docs/2.3.93-Satellite-LightRAG.md
+  tags: [lightrag, spec, implemented]
+- label: lightrag-ollama-init sidecar (services/lightrag/ollama-init.sh, alpine, depends on ollama healthy, lightrag waits for service_completed_successfully) pulls HARBOR_LIGHTRAG_OLLAMA_MODEL and derives lightrag/<model> with num_ctx=HARBOR_LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX and lightrag/<model>-query with num_ctx=HARBOR_LIGHTRAG_OLLAMA_NUM_CTX via /api/create, because Ollama's /v1 ignores per-request num_ctx
+  id: l0i
+  command: grep -q 'lightrag-ollama-init:' services/compose.x.lightrag.ollama.yml && grep -q 'service_completed_successfully' services/compose.x.lightrag.ollama.yml && grep -q '/api/create' services/lightrag/ollama-init.sh && grep -q '/api/pull' services/lightrag/ollama-init.sh && grep -q 'LIGHTRAG_OLLAMA_EXTRACT_NUM_CTX' services/compose.x.lightrag.ollama.yml && grep -q '^HARBOR_LIGHTRAG_OLLAMA_MODEL="qwen3.5:4b"' profiles/default.env
+  tags: [lightrag, spec, implemented]
+- label: lightrag ollama cross-file sends extraction/keyword calls to lightrag/<model> (LLM_MODEL) and query answers to lightrag/<model>-query (QUERY_LLM_MODEL), two derived models with different parameters so Ollama runs them on separate runners; the 3-dot llamacpp.ollama cross-file resets QUERY_LLM_MODEL to HARBOR_LIGHTRAG_LLAMACPP_MODEL. Rationale: on ROCm Ollama an answer call that follows a JSON-mode call on the same runner returns that JSON instead of an answer
+  id: l0j
+  command: grep -q 'LLM_MODEL=lightrag/${HARBOR_LIGHTRAG_OLLAMA_MODEL}' services/compose.x.lightrag.ollama.yml && grep -q 'QUERY_LLM_MODEL=lightrag/${HARBOR_LIGHTRAG_OLLAMA_MODEL}-query' services/compose.x.lightrag.ollama.yml && grep -q 'QUERY_LLM_MODEL=${HARBOR_LIGHTRAG_LLAMACPP_MODEL}' services/compose.x.lightrag.llamacpp.ollama.yml
+  tags: [lightrag, spec, implemented]
+- label: services/lightrag/check-graph.sh accepts --stack ollama|llamacpp (inspects the lightrag container's LLM_BINDING_HOST and exits non-zero with SKIP when another backend is up), --ingest-only and --queries N (default 5), asks N different questions in hybrid mode and fails when more than one answer is not grounded prose, so a single lucky answer cannot pass the runtime fact
+  id: l0k
+  command: grep -q -- '--stack' services/lightrag/check-graph.sh && grep -q 'LLM_BINDING_HOST' services/lightrag/check-graph.sh && grep -q 'queries=5' services/lightrag/check-graph.sh && grep -q 'high.level keywords' services/lightrag/check-graph.sh && grep -q '"${failed}" -le 1' services/lightrag/check-graph.sh
   tags: [lightrag, spec, implemented]
 
 ## linkwarden
@@ -1674,6 +1689,7 @@
 - label: lightrag ships RERANK_BY_DEFAULT=false (HARBOR_LIGHTRAG_RERANK_BY_DEFAULT) so queries no longer log 'Rerank is enabled but no rerank model is configured' while RERANK_BINDING is null
   command: grep -q 'RERANK_BY_DEFAULT=${HARBOR_LIGHTRAG_RERANK_BY_DEFAULT}' services/compose.lightrag.yml && grep -q '^HARBOR_LIGHTRAG_RERANK_BY_DEFAULT=false' profiles/default.env
   tags: [lightrag, spec, implemented]
-- label: lightrag ollama default model is qwen2.5:1.5b (qwen2.5:0.5b extracted entities but returned empty hybrid answers), and the doc names the Open WebUI model id as lightrag.lightrag:latest and describes HARBOR_LIGHTRAG_EXTRACTION_JSON, HARBOR_LIGHTRAG_RERANK_BY_DEFAULT and HARBOR_LIGHTRAG_LLAMACPP_THINKING
-  command: grep -q '^HARBOR_LIGHTRAG_OLLAMA_MODEL="qwen2.5:1.5b"' profiles/default.env && grep -q 'qwen2.5:1.5b' docs/2.3.93-Satellite-LightRAG.md && grep -q 'lightrag.lightrag:latest' docs/2.3.93-Satellite-LightRAG.md
+- label: lightrag ollama default model is qwen3.5:4b (qwen2.5:0.5b/1.5b and qwen3:0.6b return garbage for the long graph-mode answer prompts on ROCm Ollama), and the doc names the Open WebUI model id as lightrag.lightrag:latest and describes HARBOR_LIGHTRAG_EXTRACTION_JSON, HARBOR_LIGHTRAG_RERANK_BY_DEFAULT and HARBOR_LIGHTRAG_LLAMACPP_THINKING
+  id: tl8
+  command: grep -q '^HARBOR_LIGHTRAG_OLLAMA_MODEL="qwen3.5:4b"' profiles/default.env && grep -q 'qwen3.5:4b' docs/2.3.93-Satellite-LightRAG.md && grep -q 'lightrag.lightrag:latest' docs/2.3.93-Satellite-LightRAG.md && grep -q 'HARBOR_LIGHTRAG_LLAMACPP_THINKING' docs/2.3.93-Satellite-LightRAG.md
   tags: [lightrag, spec, implemented]
