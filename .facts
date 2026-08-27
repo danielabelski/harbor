@@ -677,7 +677,7 @@
   command: for h in lightrag paperless paperless-gpt whishper linkwarden; do grep -q "$h-init:" services/compose.$h.yml && grep -q "service_completed_successfully" services/compose.$h.yml && test -f services/$h/workspace-init.sh || exit 1; done
   tags: [ownership4, spec, implemented]
 - label: lightrag and linkwarden run as the host user (user: HARBOR_USER_ID:HARBOR_GROUP_ID); lightrag mounts its workspace as a single bind mount and linkwarden mounts only the data/ and meili/ targets that linkwarden-init chowns first, because Docker creates missing bind-mount targets root-owned
-  command: grep -q "user: \${HARBOR_USER_ID}:\${HARBOR_GROUP_ID}" services/compose.lightrag.yml && grep -q "user: \${HARBOR_USER_ID}:\${HARBOR_GROUP_ID}" services/compose.linkwarden.yml && grep -q "HARBOR_LIGHTRAG_WORKSPACE}:/app/data" services/compose.lightrag.yml && ! grep -q "rag_storage:/app" services/compose.lightrag.yml
+  command: grep -q "user: \${HARBOR_USER_ID}:\${HARBOR_GROUP_ID}" services/compose.lightrag.yml && grep -q "user: \${HARBOR_USER_ID}:\${HARBOR_GROUP_ID}" services/compose.linkwarden.yml && grep -q "HARBOR_LIGHTRAG_WORKSPACE}:/app/data" services/compose.lightrag.yml && ! grep -q "rag_storage:/app" services/compose.lightrag.yml && grep -Eq '^\s*- \$\{HARBOR_LINKWARDEN_WORKSPACE\}/data:/data/data' services/compose.linkwarden.yml && grep -Eq '^\s*- \$\{HARBOR_LINKWARDEN_WORKSPACE\}/meili:/meili_data' services/compose.linkwarden.yml && ! grep -Eq '^\s*- \$\{HARBOR_LINKWARDEN_WORKSPACE\}:/' services/compose.linkwarden.yml
   tags: [ownership4, spec, implemented]
 
 ## llamacpp
@@ -837,35 +837,36 @@
 
 ## linkwarden
 - label: compose.linkwarden.yml defines linkwarden (port 3000), linkwarden-db (postgres) and linkwarden-meili (meilisearch) with no restart policy
-  command: grep -q '^  linkwarden:' services/compose.linkwarden.yml && grep -q 'linkwarden-db:' services/compose.linkwarden.yml && grep -q 'linkwarden-meili:' services/compose.linkwarden.yml && ! grep -q 'restart:' services/compose.linkwarden.yml
+  command: $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e '(.services.linkwarden.ports|length==1 and .[0].target==3000) and (.services["linkwarden-db"].image|startswith("postgres:")) and (.services["linkwarden-meili"].image|test("meilisearch")) and ([.services[]|.restart]|all(.==null))' >/dev/null
   tags: [linkwarden, spec, implemented]
 - label: every HARBOR_LINKWARDEN_* var referenced by linkwarden compose files is defined in profiles/default.env
   command: for v in $(grep -oh 'HARBOR_LINKWARDEN_[A-Z_]*' services/compose.linkwarden.yml services/compose.x.linkwarden.*.yml | sort -u); do grep -q "^$v=" profiles/default.env || { echo missing $v; exit 1; }; done
   tags: [linkwarden, spec, implemented]
 - label: linkwarden ollama cross-file sets NEXT_PUBLIC_OLLAMA_ENDPOINT_URL to the internal ollama URL and OLLAMA_MODEL from HARBOR_LINKWARDEN_OLLAMA_MODEL
-  command: grep -q 'NEXT_PUBLIC_OLLAMA_ENDPOINT_URL=${HARBOR_OLLAMA_INTERNAL_URL}' services/compose.x.linkwarden.ollama.yml && grep -q 'OLLAMA_MODEL=${HARBOR_LINKWARDEN_OLLAMA_MODEL}' services/compose.x.linkwarden.ollama.yml
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; $(./harbor.sh cmd --no-defaults linkwarden ollama) config --format json | jq -e --arg u "$(ev HARBOR_OLLAMA_INTERNAL_URL)" --arg m "$(ev HARBOR_LINKWARDEN_OLLAMA_MODEL)" '.services.linkwarden.environment | .NEXT_PUBLIC_OLLAMA_ENDPOINT_URL==$u and .OLLAMA_MODEL==$m' >/dev/null
   tags: [linkwarden, spec, implemented]
 - label: linkwarden llamacpp cross-file points CUSTOM_OPENAI_BASE_URL at http://llamacpp:8080/v1 with OPENAI_MODEL from HARBOR_LINKWARDEN_LLAMACPP_MODEL
-  command: grep -q 'CUSTOM_OPENAI_BASE_URL=http://llamacpp:8080/v1' services/compose.x.linkwarden.llamacpp.yml && grep -q 'OPENAI_MODEL=${HARBOR_LINKWARDEN_LLAMACPP_MODEL}' services/compose.x.linkwarden.llamacpp.yml
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; $(./harbor.sh cmd --no-defaults linkwarden llamacpp) config --format json | jq -e --arg m "$(ev HARBOR_LINKWARDEN_LLAMACPP_MODEL)" '.services.linkwarden.environment | .CUSTOM_OPENAI_BASE_URL=="http://llamacpp:8080/v1" and .OPENAI_MODEL==$m and (.OPENAI_API_KEY|length>0)' >/dev/null
   tags: [linkwarden, spec, implemented]
 - label: linkwarden has app metadata, a satellite doc at docs/2.3.97-Satellite-Linkwarden.md with screenshot, and a data .gitignore
   command: grep -q '^    linkwarden: {' app/src/serviceMetadata.ts && test -f docs/2.3.97-Satellite-Linkwarden.md && test -f docs/harbor-linkwarden.png && grep -q harbor-linkwarden.png docs/2.3.97-Satellite-Linkwarden.md && grep -q '^data' services/linkwarden/.gitignore
   tags: [linkwarden, spec, implemented]
 - after harbor up linkwarden a user can sign up, save a link and receive AI-generated tags from ollama (verified manually via agent-browser) @linkwarden @spec @implemented
 - label: linkwarden depends on linkwarden-db (pg_isready healthcheck) and linkwarden-meili (/health healthcheck) with condition service_healthy so Prisma migrations do not race the database on a cold start
-  command: grep -q "pg_isready -U postgres" services/compose.linkwarden.yml && grep -q "7700/health" services/compose.linkwarden.yml && [ "$(grep -c "condition: service_healthy" services/compose.linkwarden.yml)" -ge 2 ]
+  command: $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e '(.services["linkwarden-db"].healthcheck.test==["CMD-SHELL","pg_isready -U postgres"]) and (.services["linkwarden-meili"].healthcheck.test|index("http://127.0.0.1:7700/health")) and (.services.linkwarden.depends_on | .["linkwarden-db"].condition=="service_healthy" and .["linkwarden-meili"].condition=="service_healthy")' >/dev/null
   tags: [linkwarden, spec, implemented]
 - label: linkwarden compose defines a curl healthcheck against /api/v1/public/users/1 on port 3000 with a start_period so harbor up reports the container healthy only once the app answers
-  command: grep -q 'api/v1/public/users/1' services/compose.linkwarden.yml && grep -q start_period services/compose.linkwarden.yml
+  command: $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e '.services.linkwarden.healthcheck | .test[0]=="CMD" and .test[1]=="curl" and (.test|index("http://127.0.0.1:3000/api/v1/public/users/1")) and (.start_period|test("^[0-9]+s$"))' >/dev/null
   tags: [linkwarden, spec, implemented]
-- label: linkwarden-meili runs as the host user with MEILI_NO_ANALYTICS=true and its index dir is chowned by linkwarden-init, so services/linkwarden/meili stays host-owned
-  command: grep -A12 'linkwarden-meili:' services/compose.linkwarden.yml | grep -q 'user: ${HARBOR_USER_ID}' && grep -q MEILI_NO_ANALYTICS services/compose.linkwarden.yml && grep -q '/meili:/workspace/meili' services/compose.linkwarden.yml
+- label: linkwarden-meili runs as HARBOR_USER_ID:HARBOR_GROUP_ID with MEILI_NO_ANALYTICS=true and mounts HARBOR_LINKWARDEN_WORKSPACE/meili at /meili_data, the same directory linkwarden-init mounts at /workspace/meili and chowns (workspace-init.sh chown -R TARGET_UID:TARGET_GID /workspace), so services/linkwarden/meili stays host-owned
+  id: 549
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; $(./harbor.sh cmd --no-defaults linkwarden) config --format json | jq -e --arg u "$(ev HARBOR_USER_ID):$(ev HARBOR_GROUP_ID)" '.services["linkwarden-meili"] as $m | $m.user==$u and $m.environment.MEILI_NO_ANALYTICS=="true" and ([$m.volumes[]|select(.target=="/meili_data")]|length==1) and ([$m.volumes[]|select(.target=="/meili_data")][0].source|endswith("/meili")) and (([$m.volumes[]|select(.target=="/meili_data")][0].source) == ([.services["linkwarden-init"].volumes[]|select(.target=="/workspace/meili")][0].source)) and ($m.depends_on["linkwarden-init"].condition=="service_completed_successfully")' >/dev/null && grep -Eq '^\s*chown -R "\$\{TARGET_UID[^"]*:\$\{TARGET_GID[^"]*" /workspace\s*$' services/linkwarden/workspace-init.sh
   tags: [linkwarden, spec, implemented]
 - label: linkwarden has vllm and mlx cross-files wiring CUSTOM_OPENAI_BASE_URL to the backend's /v1 endpoint with OPENAI_MODEL from HARBOR_VLLM_MODEL / HARBOR_MLX_MODEL
-  command: grep -q 'http://vllm:8000/v1' services/compose.x.linkwarden.vllm.yml && grep -q HARBOR_VLLM_MODEL services/compose.x.linkwarden.vllm.yml && grep -q 'http://mlx:8080/v1' services/compose.x.linkwarden.mlx.yml && grep -q HARBOR_MLX_MODEL services/compose.x.linkwarden.mlx.yml
+  command: ev(){ grep -m1 "^$1=" .env | cut -d= -f2- | tr -d "\""; }; for b in vllm:8000 mlx:8080; do n=${b%%:*}; $(./harbor.sh cmd --no-defaults linkwarden $n) config --format json | jq -e --arg b "http://$b/v1" --arg m "$(ev HARBOR_$(echo $n | tr a-z A-Z)_MODEL)" '.services.linkwarden.environment | .CUSTOM_OPENAI_BASE_URL==$b and .OPENAI_MODEL==$m' >/dev/null || exit 1; done
   tags: [linkwarden, spec, implemented]
 - label: the linkwarden doc follows the Windmill format: #### Starting/Configuration/Integration with Harbor/Troubleshooting/Links headings, Key Features list, Volumes and File ownership subsections
-  command: for h in '#### Starting' '#### Configuration' '#### Integration with Harbor' '#### Troubleshooting' '#### Links' 'Key Features' '##### Volumes' '##### File ownership'; do grep -q "$h" docs/2.3.97-Satellite-Linkwarden.md || exit 1; done
+  command: d=docs/2.3.97-Satellite-Linkwarden.md; prev=0; for h in '#### Starting' '#### Configuration' '#### Integration with Harbor' '#### Troubleshooting' '#### Links'; do n=$(grep -n -m1 "^$h$" $d | cut -d: -f1); [ -n "$n" ] && [ "$n" -gt "$prev" ] || exit 1; prev=$n; done; [ "$(grep -A4 '^\*\*Key Features' $d | grep -c '^- ')" -ge 3 ] && grep -q '^##### Volumes' $d && grep -q '^##### File ownership' $d && awk '/^#{4,5} /{if(h!=""&&c<1&&!(h~/^#### /&&$0~/^##### /)){exit 1};h=$0;c=0;next} /^\s*$/{next} {c++} END{exit (c<1)}' $d
   tags: [linkwarden, spec, implemented]
 
 ## paperless
