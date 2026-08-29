@@ -13,6 +13,11 @@ prefix=$(./harbor.sh config get container.prefix 2>/dev/null || echo harbor)
 lc_port=$(./harbor.sh config get librechat.host.port 2>/dev/null || echo 33891)
 lc="$prefix.librechat"; rag="$prefix.librechat-rag"; tei="$prefix.tei"; db="$prefix.librechat-db"
 
+# Stack guard: SKIP (exit 1) instead of failing noisily when the stack is down.
+for c in "$tei" "$rag"; do
+  [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] || { echo "SKIP: $c is not running"; exit 1; }
+done
+
 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$rag" \
   | grep -q '^RAG_OPENAI_BASEURL=http://tei:80/v1$' \
   || { echo "librechat-rag embedder is not TEI"; exit 1; }

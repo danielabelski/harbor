@@ -10,6 +10,11 @@ prefix=$(./harbor.sh config get container.prefix 2>/dev/null || echo harbor)
 port=$(./harbor.sh config get webui.host.port 2>/dev/null || echo 33801)
 webui="$prefix.webui"; tei="$prefix.tei"
 
+# Stack guard: SKIP (exit 1) instead of failing noisily when the stack is down.
+for c in "$tei" "$webui"; do
+  [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] || { echo "SKIP: $c is not running"; exit 1; }
+done
+
 token=$(docker exec "$webui" python -W ignore -c "
 import jwt,os,sqlite3
 uid=sqlite3.connect('/app/backend/data/webui.db').execute(\"select id from user where role='admin' limit 1\").fetchone()[0]

@@ -12,6 +12,11 @@ cd "$(dirname "$0")/../.."
 prefix=$(./harbor.sh config get container.prefix 2>/dev/null || echo harbor)
 port=$(./harbor.sh config get anythingllm.host.port 2>/dev/null || echo 34171)
 tei="$prefix.tei"; allm="$prefix.anythingllm"
+
+# Stack guard: SKIP (exit 1) instead of failing noisily when the stack is down.
+for c in "$tei" "$allm"; do
+  [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] || { echo "SKIP: $c is not running"; exit 1; }
+done
 api="http://localhost:$port/api"
 auth=(); [ -n "${ANYTHINGLLM_TOKEN:-}" ] && auth=(-H "Authorization: Bearer $ANYTHINGLLM_TOKEN")
 
