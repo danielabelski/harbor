@@ -36,6 +36,25 @@ if body.get("status") != "success":
 PY
 }
 
+# Derived copies from a previous HARBOR_LIGHTRAG_OLLAMA_MODEL / num_gpu setting
+# would otherwise stay in every Ollama client's model list forever; the
+# lightrag/ prefix is Harbor's, so anything under it that is not the current
+# pair is removed. Never touches the base or embedding models.
+prune() {
+  python3 - "${host}" "${extract}" "${query}" <<'PY'
+import json, sys, urllib.request
+host, keep = sys.argv[1], set(sys.argv[2:])
+with urllib.request.urlopen(host + "/api/tags", timeout=60) as r:
+    names = [m["name"] for m in json.load(r).get("models", [])]
+for name in names:
+    if name.startswith("lightrag/") and name not in keep and name.removesuffix(":latest") not in keep:
+        print(f"Harbor: lightrag ollama init - removing stale {name}")
+        req = urllib.request.Request(host + "/api/delete", data=json.dumps({"model": name}).encode(),
+                                     headers={"Content-Type": "application/json"}, method="DELETE")
+        urllib.request.urlopen(req, timeout=60).read()
+PY
+}
+
 # $3: extra parameters JSON (e.g. num_gpu for the query copy); num_gpu below 0
 # is left to Ollama's default so the copy stays on the GPU
 create() {
@@ -49,6 +68,7 @@ if [ -n "${embedding}" ]; then
   echo "Harbor: lightrag ollama init - pulling ${embedding}"
   post /api/pull "{\"model\":\"${embedding}\",\"stream\":false}"
 fi
+prune
 create "${extract}" "${extract_ctx}"
 if [ "${query_gpu}" -ge 0 ]; then
   create "${query}" "${query_ctx}" "\"num_gpu\":${query_gpu}"
